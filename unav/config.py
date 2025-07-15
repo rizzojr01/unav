@@ -17,7 +17,8 @@ class UNavConfig:
         mapping_building: str = "LightHouse",
         mapping_floor: str = "3_floor",
         global_descriptor_model: str = "DinoV2Salad",
-        local_feature_model: str = "superpoint+lightglue"
+        local_feature_model: str = "superpoint+lightglue",
+        mapping_mode: str = "whole"
     ) -> None:
         """
         Initialize unified configuration for the entire UNav system.
@@ -57,7 +58,8 @@ class UNavConfig:
                 building=mapping_building,
                 floor=mapping_floor,
                 global_descriptor_model=global_descriptor_model,
-                local_feature_model=local_feature_model
+                local_feature_model=local_feature_model,
+                mapping_mode=mapping_mode
             )
         self.localizer_config = UNavLocalizationConfig(
             data_final_root=data_final_root,
@@ -93,7 +95,13 @@ class UNavMappingConfig:
     """
 
     # ----------- Supported Models/Extractors -----------
-
+    SUPPORTED_FRAME_EXTRACTORS: Dict[str, Dict[str, Any]] = {
+        "default": {
+            "frame_interval": 1,        # Extract every frame
+            "img_ext": "jpg",           # Image file extension
+            "resize": None,             # None or (width, height)
+        }
+    }
     SUPPORTED_GLOBAL_MODELS: Dict[str, Dict[str, Any]] = {
         "MixVPR": {
             "ckpt_path": 'parameters/MixVPR/ckpts/resnet50_MixVPR_4096_channels(1024)_rows(4).ckpt',
@@ -156,7 +164,10 @@ class UNavMappingConfig:
         building: str = "LightHouse",
         floor: str = "3_floor",
         global_descriptor_model: str = "DinoV2Salad",
-        local_feature_model: str = "superpoint+lightglue"
+        local_feature_model: str = "superpoint+lightglue",
+        frame_extractor_name: str = "default",
+        frame_extractor_overrides: Dict[str, Any] = None,
+        mapping_mode: str = "segment"
     ) -> None:
         """
         Initialize the UNav mapping config.
@@ -166,17 +177,21 @@ class UNavMappingConfig:
         self.place: str = place
         self.building: str = building
         self.floor: str = floor
+        self.mapping_mode = mapping_mode
         self.global_descriptor_model: str = global_descriptor_model
         self.local_feature_model: str = local_feature_model
         self.data_temp_dir: str = os.path.join(data_temp_root, place, building, floor)
         self.data_final_dir: str = os.path.join(data_final_root, place, building, floor)
+        self.frame_extractor_name: str = frame_extractor_name
+        self.frame_extractor_config: Dict[str, Any] = self._init_frame_extractor_config(frame_extractor_overrides)
         self.slam_config: Dict[str, Any] = self._init_slam_config()
         self.aligner_config: Dict[str, Any] = self._init_aligner_config()
         self.slicer_config: Dict[str, Any] = self._init_slicing_config()
         self.feature_extraction_config: Dict[str, Any] = self._init_feature_extraction_config()
         self.matcher_config: Dict[str, Any] = self._init_matching_config()
         self.colmap_config: Dict[str, Any] = self._init_colmap_config()
-        self._generate_stella_vslam_yaml()
+        if not self.mapping_mode == "segment":
+            self._generate_stella_vslam_yaml()
 
     def to_dict(self) -> Dict[str, Any]:
         """Export config as a nested dictionary."""
@@ -188,6 +203,7 @@ class UNavMappingConfig:
             "floor": self.floor,
             "global_descriptor_model": self.global_descriptor_model,
             "local_feature_model": self.local_feature_model,
+            "frame_extractor_config": self.frame_extractor_config,
             "slam_config": self.slam_config,
             "aligner_config": self.aligner_config,
             "slicer_config": self.slicer_config,
@@ -201,6 +217,24 @@ class UNavMappingConfig:
                 f"G: {self.global_descriptor_model} L: {self.local_feature_model}>")
 
     # ----------- Internal Init Functions -----------
+    
+    # ----------- Frame Extractor Config -----------
+    def _init_frame_extractor_config(self, overrides: Dict[str, Any] = None) -> dict:
+        """
+        Config for perspective frame extraction from videos.
+        """
+        video_folder = os.path.join(self.data_temp_root, self.place, self.building, self.floor)
+        perspective_folder = os.path.join(video_folder, "perspectives")
+        # Select extractor profile
+        extractor = self.SUPPORTED_FRAME_EXTRACTORS.get(self.frame_extractor_name, {}).copy()
+        if overrides:
+            extractor.update(overrides)
+        # Define input/output dirs based on current config
+        extractor.update({
+            "input_folder": video_folder,
+            "output_folder": perspective_folder,
+        })
+        return extractor
     
     # ----------- SLAM Config -----------
     def _init_slam_config(self) -> dict:

@@ -28,7 +28,7 @@ for place in "${PLACES[@]}"; do
       echo "---------------------------------------------"
       echo ">> Mapping: Place=$place | Building=$building | Floor=$floor"
       echo "---------------------------------------------"
-      python -m unav.run_mapping \
+      python -m unav.run_mapper \
         "$DATA_TEMP_ROOT" \
         "$DATA_FINAL_ROOT" \
         "$FEATURE_MODEL" \

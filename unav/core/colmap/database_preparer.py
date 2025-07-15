@@ -176,3 +176,115 @@ def create_colmap_database_with_known_poses(
     db.commit()
     db.close()
     logging.info(f"[UNav] COLMAP database created and populated.")
+
+def create_colmap_database_without_poses(
+    database_path: Path,
+    local_feature_file: Path,
+    matches_file: Path,
+    pairs_txt: Path,
+    fov_deg: float = 70.0,
+    camera_model: str = "PINHOLE",
+    overwrite: bool = True
+) -> None:
+    """
+    Prepare a COLMAP database in segment mode (no prior pose, no external cameras.txt):
+    - Automatically infer camera intrinsics from feature images.
+    - Add images from local_feature_file (one image per group), using camera_id=1.
+    - Import keypoints for each image from local_feature_file.
+    - Import matches between images from matches_file and pairs_txt.
+
+    Args:
+        database_path (Path): Output SQLite database path.
+        local_feature_file (Path): HDF5 file with local features (groups per image).
+        matches_file (Path): HDF5 file with match pairs.
+        pairs_txt (Path): List of image pairs (img1 img2).
+        fov_deg (float): Field of view for the camera intrinsics.
+        camera_model (str): Camera model type (default: "PINHOLE").
+        overwrite (bool): If True, delete existing database before writing.
+    """
+    logging.info(f"[UNav] Creating COLMAP segment database: {database_path}")
+
+    # Remove existing database if overwrite is True
+    if overwrite and os.path.exists(database_path):
+        os.remove(database_path)
+    db = COLMAPDatabase.connect(database_path)
+    db.create_tables()
+
+    # --- Infer camera intrinsics from first image in local_feature_file ---
+    with h5py.File(local_feature_file, 'r') as f_feat:
+        img_names = list(f_feat.keys())
+        # Find the first available image and read its image_size
+        found = False
+        for name in img_names:
+            if 'image_size' in f_feat[name]:
+                h, w = f_feat[name]['image_size'][:]
+                found = True
+                break
+        if not found:
+            raise RuntimeError("[UNav] No image_size field found in local_feature_file.")
+        # Calculate fx, fy from FOV
+        fov_rad = np.radians(fov_deg)
+        fx = fy = (w / 2) / np.tan(fov_rad / 2)
+        cx = w / 2
+        cy = h / 2
+        cam_params = [fx, fy, cx, cy]
+    model_id = CAMERA_MODEL_NAMES[camera_model].model_id
+
+    # --- Add single camera to database ---
+    camera_id = 1
+    db.add_camera(
+        model_id, w, h, cam_params,
+        camera_id=camera_id, prior_focal_length=True
+    )
+
+    # --- Add image entries ---
+    image_id_map = {}
+    for idx, name in enumerate(img_names):
+        # Use camera_id=1 for all images, and no prior_q/prior_t (unknown pose)
+        image_id = db.add_image(
+            name,
+            camera_id=1,
+            prior_q=[1.0, 0.0, 0.0, 0.0],
+            prior_t=[0.0, 0.0, 0.0],
+            image_id=idx + 1
+        )
+        image_id_map[name] = image_id
+
+    # --- Add keypoints ---
+    with h5py.File(local_feature_file, 'r') as f_feat:
+        for name in img_names:
+            kpts = f_feat[name]['keypoints'][:]
+            kpts = kpts.astype(np.float32) + 0.5  # COLMAP uses pixel-center origin
+            db.add_keypoints(image_id_map[name], kpts)
+
+    # --- Import matches ---
+    with open(pairs_txt, 'r') as f:
+        pairs = [line.strip().split() for line in f.readlines() if line.strip()]
+
+    with h5py.File(matches_file, 'r') as f_match:
+        for img1_name, img2_name in pairs:
+            if img1_name not in image_id_map or img2_name not in image_id_map:
+                logging.error(f"[UNav] Unknown image in pairs.txt: {img1_name} or {img2_name}")
+                continue
+            img1_id = image_id_map[img1_name]
+            img2_id = image_id_map[img2_name]
+            key = f"{img1_name}_{img2_name}"
+            if key not in f_match:
+                key = f"{img2_name}_{img1_name}"
+                if key not in f_match:
+                    logging.error(f"[UNav] Could not find matches for pair {img1_name} {img2_name}")
+                    continue
+            matches = f_match[key]['matches0'][:]
+            db.add_matches(img1_id, img2_id, matches)
+            db.add_two_view_geometry(
+                img1_id,
+                img2_id,
+                matches,
+                F=np.eye(3),  # Placeholder
+                E=np.eye(3),  # Placeholder
+                H=np.eye(3),  # Placeholder
+                config=2      # 2 = confirmed match
+            )
+    db.commit()
+    db.close()
+    logging.info(f"[UNav] Segment COLMAP database created at {database_path}")
