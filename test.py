@@ -18,7 +18,7 @@ DATA_FINAL_ROOT = "/mnt/data/UNav-IO/data"
 FEATURE_MODEL = "DinoV2Salad"
 PLACE = "New_York_City"
 BUILDING = "LightHouse"
-FLOOR = "6_floor_segments"
+FLOOR = "gerrard-hall"
 # =====================================================================
 
 def main():

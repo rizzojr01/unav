@@ -68,23 +68,23 @@ def main():
     pipeline_start = time.time()
     print("Starting UNav segment mapping pipeline (perspective images)...")
 
-    # 1. Extract frames from each video
+    # # 1. Extract frames from each video
     # t0 = time.time()
     # from unav.mapper.frame_extractor import extract_frames_from_videos
     # extract_frames_from_videos(mapper_config)
     # print(f"[Stage 1] Frame extraction completed in {time.time() - t0:.2f} seconds.")
 
     # 2. Feature extraction
-    # t1 = time.time()
-    # from unav.mapper.feature_extractor import extract_features_from_dir
-    # extract_features_from_dir(mapper_config)
-    # print(f"[Stage 2] Feature extraction completed in {time.time() - t1:.2f} seconds.")
+    t1 = time.time()
+    from unav.mapper.feature_extractor import extract_features_from_dir
+    extract_features_from_dir(mapper_config)
+    print(f"[Stage 2] Feature extraction completed in {time.time() - t1:.2f} seconds.")
 
-    # # 3. Feature matching with geometric verification
-    # t2 = time.time()
-    # from unav.mapper.matcher import generate_and_stream_colmap
-    # generate_and_stream_colmap(mapper_config)
-    # print(f"[Stage 3] Feature matching and verification completed in {time.time() - t2:.2f} seconds.")
+    # 3. Feature matching with geometric verification
+    t2 = time.time()
+    from unav.mapper.matcher import generate_and_stream_colmap
+    generate_and_stream_colmap(mapper_config)
+    print(f"[Stage 3] Feature matching and verification completed in {time.time() - t2:.2f} seconds.")
 
     # 4. Build global map with GloMap
     t3 = time.time()
@@ -92,8 +92,8 @@ def main():
     run_glomap_segment_pipeline(mapper_config)
     print(f"[Stage 4] GloMap triangulation completed in {time.time() - t3:.2f} seconds.")
 
-    # total_time = time.time() - pipeline_start
-    # print(f"UNav segment mapping pipeline finished in {total_time:.2f} seconds.")
+    total_time = time.time() - pipeline_start
+    print(f"UNav segment mapping pipeline finished in {total_time:.2f} seconds.")
 
 if __name__ == "__main__":
     main()

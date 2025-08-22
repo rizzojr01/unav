@@ -183,70 +183,57 @@ def create_colmap_database_without_poses(
     matches_file: Path,
     pairs_txt: Path,
     fov_deg: float = 70.0,
-    camera_model: str = "PINHOLE",
+    camera_model: str = "OPENCV",
     overwrite: bool = True
 ) -> None:
     """
-    Prepare a COLMAP database in segment mode (no prior pose, no external cameras.txt):
+    Prepare a COLMAP database in segment mode (no prior pose, no external cameras.txt/images.txt):
     - Automatically infer camera intrinsics from feature images.
-    - Add images from local_feature_file (one image per group), using camera_id=1.
-    - Import keypoints for each image from local_feature_file.
-    - Import matches between images from matches_file and pairs_txt.
-
-    Args:
-        database_path (Path): Output SQLite database path.
-        local_feature_file (Path): HDF5 file with local features (groups per image).
-        matches_file (Path): HDF5 file with match pairs.
-        pairs_txt (Path): List of image pairs (img1 img2).
-        fov_deg (float): Field of view for the camera intrinsics.
-        camera_model (str): Camera model type (default: "PINHOLE").
-        overwrite (bool): If True, delete existing database before writing.
+    - Add a single camera (SIMPLE_RADIAL, fx, cx, cy, k) based on FOV and feature h5.
+    - Add images (no pose) and import keypoints.
+    - Import matches between images and write to both 'matches' and 'two_view_geometries' tables.
+    All fields are consistent with official COLMAP database format.
     """
     logging.info(f"[UNav] Creating COLMAP segment database: {database_path}")
 
-    # Remove existing database if overwrite is True
-    if overwrite and os.path.exists(database_path):
-        os.remove(database_path)
-    db = COLMAPDatabase.connect(database_path)
+    if overwrite and database_path.exists():
+        database_path.unlink()
+    db = COLMAPDatabase.connect(str(database_path))
     db.create_tables()
 
-    # --- Infer camera intrinsics from first image in local_feature_file ---
+    # --- Infer camera intrinsics from first available image in local_feature_file ---
     with h5py.File(local_feature_file, 'r') as f_feat:
         img_names = list(f_feat.keys())
-        # Find the first available image and read its image_size
-        found = False
         for name in img_names:
             if 'image_size' in f_feat[name]:
                 h, w = f_feat[name]['image_size'][:]
-                found = True
                 break
-        if not found:
+        else:
             raise RuntimeError("[UNav] No image_size field found in local_feature_file.")
-        # Calculate fx, fy from FOV
+        # Calculate fx, fy, cx, cy for OPENCV
         fov_rad = np.radians(fov_deg)
         fx = fy = (w / 2) / np.tan(fov_rad / 2)
         cx = w / 2
         cy = h / 2
-        cam_params = [fx, fy, cx, cy]
-    model_id = CAMERA_MODEL_NAMES[camera_model].model_id
+        # OPENCV: fx, fy, cx, cy, k1, k2, p1, p2
+        cam_params = np.array([fx, fy, cx, cy, 0.0, 0.0, 0.0, 0.0], dtype=np.float64)
+        model_id = CAMERA_MODEL_NAMES[camera_model].model_id
 
-    # --- Add single camera to database ---
-    camera_id = 1
-    db.add_camera(
-        model_id, w, h, cam_params,
-        camera_id=camera_id, prior_focal_length=True
+    # --- Add camera (camera_id=1) ---
+    camera_id = db.add_camera(
+        model_id,
+        width=int(w),
+        height=int(h),
+        params=cam_params,
+        prior_focal_length=True
     )
 
-    # --- Add image entries ---
+    # --- Add images (one per key) ---
     image_id_map = {}
     for idx, name in enumerate(img_names):
-        # Use camera_id=1 for all images, and no prior_q/prior_t (unknown pose)
         image_id = db.add_image(
-            name,
-            camera_id=1,
-            prior_q=[1.0, 0.0, 0.0, 0.0],
-            prior_t=[0.0, 0.0, 0.0],
-            image_id=idx + 1
+            name=name,
+            camera_id=camera_id  # All images share the same camera
         )
         image_id_map[name] = image_id
 
@@ -257,7 +244,7 @@ def create_colmap_database_without_poses(
             kpts = kpts.astype(np.float32) + 0.5  # COLMAP uses pixel-center origin
             db.add_keypoints(image_id_map[name], kpts)
 
-    # --- Import matches ---
+    # --- Add matches and two_view_geometries ---
     with open(pairs_txt, 'r') as f:
         pairs = [line.strip().split() for line in f.readlines() if line.strip()]
 
@@ -285,6 +272,7 @@ def create_colmap_database_without_poses(
                 H=np.eye(3),  # Placeholder
                 config=2      # 2 = confirmed match
             )
+
     db.commit()
     db.close()
     logging.info(f"[UNav] Segment COLMAP database created at {database_path}")

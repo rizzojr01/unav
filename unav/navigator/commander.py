@@ -44,6 +44,57 @@ def convert_distance_meta(meters: float, unit: Literal["meter", "feet"], lang: s
     else:
         raise ValueError("Unit must be 'meter' or 'feet'.")
 
+# --- Add this helper just below normalize_angle()/convert_distance_meta() ---
+
+def angle_to_clock_hour(turn_deg: float) -> int:
+    """
+    Map a signed relative turn angle (in degrees) to a 12-hour clock index.
+    Right turns are mapped to hours 1..6, left turns to 11..7.
+    """
+    raw = -turn_deg  # positive => right, negative => left (match existing code logic)
+    clock_n = int(round(raw / 30.0)) % 12
+    hour = 12 if clock_n == 0 else clock_n
+    return hour
+
+def classify_turn_sector(turn_deg: float) -> Tuple[str, str]:
+    """
+    Classify the relative turn into fine-grained sectors based on your clock ranges.
+
+    Bins (absolute raw angle = |-turn|):
+      0°–15°                 -> 'ahead'            (11:30–12:30)
+      15°–45°                -> 'very_slight'
+      45°–75°                -> 'slight'
+      75°–105°               -> 'turn'
+      105°–135°              -> 'sharp'
+      135°–165°              -> 'very_sharp'
+      >=165° (up to 180°)    -> 'u_turn'           (5:30–6:30)
+
+    Returns:
+      qual: one of {'ahead','very_slight','slight','turn','sharp','very_sharp','u_turn'}
+      direction: 'left' | 'right'  (for 'ahead'/'u_turn' the direction is still set
+                                    by sign, but you may ignore it downstream)
+    """
+    # raw angle: positive => right, negative => left (consistent with hour mapping)
+    raw = -turn_deg
+    abs_raw = abs(raw)
+
+    direction = 'right' if raw > 0 else 'left'
+
+    if abs_raw <= 15.0:
+        return 'ahead', direction
+    elif abs_raw <= 45.0:
+        return 'very_slight', direction
+    elif abs_raw <= 75.0:
+        return 'slight', direction
+    elif abs_raw <= 105.0:
+        return 'turn', direction
+    elif abs_raw <= 135.0:
+        return 'sharp', direction
+    elif abs_raw <= 165.0:
+        return 'very_sharp', direction
+    else:
+        return 'u_turn', direction
+
 def commands_from_result(
     navigator,
     path_result: Dict[str, Any],
@@ -232,13 +283,17 @@ def commands_from_result(
 
         # --- Turn detection ---
         bearing = math.degrees(math.atan2(dy, dx))
-        turn = normalize_angle(bearing - heading)
-        raw = -turn
-        clock_n = int(round(raw / 30)) % 12
-        hour = 12 if clock_n == 0 else clock_n
-        is_turn = abs(turn) >= 5
+        turn = normalize_angle(bearing - heading)  # signed delta, left>0, right<0
+
+        # Fine-grained sector classification
+        qual, direction_word = classify_turn_sector(turn)
+        hour = angle_to_clock_hour(turn)
+
+        # A "turn event" happens on any bin except 'ahead'
+        is_turn = (qual != 'ahead')
 
         if is_turn:
+            # Flush any straight distance accumulated before turning
             if straight_distance > 0:
                 dist_text, dist_val, dist_unit = convert_distance_meta(straight_distance * scale, unit, language)
                 if door_events:
@@ -259,30 +314,30 @@ def commands_from_result(
                     commands.append({
                         "tag": "forward",
                         "text": nav_text("forward", language, dist=dist_text),
-                        "meta": {
-                            "distance": dist_val,
-                            "unit": dist_unit
-                        }
+                        "meta": {"distance": dist_val, "unit": dist_unit}
                     })
                 straight_distance = 0.0
 
-            if hour == 6:
+            # Emit the appropriate turning command
+            if qual == 'u_turn':
                 commands.append({
                     "tag": "u_turn",
                     "text": nav_text("u_turn", language),
                     "meta": {}
                 })
             else:
-                qual = "Slight" if abs(turn) < 45 else "Turn" if abs(turn) < 90 else "Sharp"
-                direction_word = "left" if turn > 0 else "right"
+                # Note: make sure your nav_text('turn', ...) supports the new 'qual' values:
+                # {'very_slight','slight','turn','sharp','very_sharp'}
                 commands.append({
                     "tag": "turn",
                     "text": nav_text("turn", language, qual=qual, direction=direction_word, hour=hour),
                     "meta": {"qual": qual, "direction": direction_word, "hour": hour}
                 })
 
+            # Update heading after a turn
             heading = bearing
 
+        # Accumulate straight distance along this segment
         straight_distance += segment_dist
 
         # --- Door detection ---
@@ -335,32 +390,42 @@ def commands_from_result(
 
         i += 1
 
-    # --- Final arrival instruction ---
+    # --- Final arrival instruction (sector-based) ---
     final_label = labels[-1]
+
+    # Optional orientation hint from description (fallback to current heading)
     desc = descriptions[-1].lower()
     desc_to_bearing = {'up': 90.0, 'right': 0.0, 'down': -90.0, 'left': 180.0}
     orientation_bearing = desc_to_bearing.get(desc, heading)
+
+    # Relative angle from current heading to the desired arrival facing
     turn = normalize_angle(orientation_bearing - heading)
-    raw = -turn
-    clock_n = int(round(raw / 30)) % 12
-    hour = 12 if clock_n == 0 else clock_n
 
-    if hour == 12:
-        dir_word = {"en": "ahead", "zh": "正前方", "th": "ข้างหน้า"}.get(language, "ahead")
-    elif hour == 6:
-        dir_word = {"en": "behind", "zh": "正后方", "th": "ข้างหลัง"}.get(language, "behind")
-    elif hour in (1, 2, 3, 4, 5):
-        dir_word = {"en": "right", "zh": "右侧", "th": "ขวา"}.get(language, "right")
-    elif hour in (7, 8, 9, 10, 11):
-        dir_word = {"en": "left", "zh": "左侧", "th": "ซ้าย"}.get(language, "left")
+    # Sectorize using the same clock-face rules as turning
+    qual, direction_word = classify_turn_sector(turn)        # returns e.g., ('slight', 'right') or ('ahead', 'right') or ('u_turn', 'left')
+    hour = angle_to_clock_hour(turn)                         # 1..12
 
+    # Emit arrival text; nav_text('arrive', ...) will localize qual/direction to dir_word
     commands.append({
         "tag": "arrive",
-        "text": nav_text("arrive", language, label=final_label, hour=hour, dir_word=dir_word),
-        "meta": {"label": final_label, "hour": hour, "direction_word": dir_word}
+        "text": nav_text(
+            "arrive",
+            language,
+            label=final_label,
+            qual=qual,
+            direction=direction_word,
+            hour=hour
+        ),
+        "meta": {
+            "label": final_label,
+            "hour": hour,
+            "qual": qual,
+            "direction": direction_word
+        }
     })
 
     return commands
+
 
 def split_path_by_floor(
     path_keys: List[Union[str, Tuple[str, str, str, int]]],

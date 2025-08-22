@@ -1,5 +1,13 @@
 # nav_text.py
 
+"""
+Navigation text templates and simple localization helpers.
+
+- Callers pass semantic tokens (e.g., qual='very_slight', direction='left').
+- nav_text() will localize these tokens for the 'turn' template automatically.
+- Distance unit strings are provided by unit_text().
+"""
+
 NAV_TEXT = {
     "start_in": {
         "en": "You are currently in {room} on {floor} of {building}, {place}.",
@@ -67,6 +75,7 @@ NAV_TEXT = {
         "th": "ไปที่ชั้น {floor} อาคาร {building}"
     },
     "turn": {
+        # NOTE: {qual} and {direction} are localized automatically in nav_text()
         "en": "{qual} {direction} to {hour} o'clock",
         "zh": "{hour}点方向{qual}{direction}转弯",
         "th": "{qual} เลี้ยว{direction} ไปทาง {hour} นาฬิกา"
@@ -106,12 +115,124 @@ UNIT_TEXT = {
     }
 }
 
+# ---- New: localization maps for turn qualifiers and directions ----
+
+QUAL_TEXT = {
+    # Tokens expected from the planner: 'very_slight','slight','turn','sharp','very_sharp'
+    "en": {
+        "very_slight": "very slight",
+        "slight": "slight",
+        "turn": "turn",
+        "sharp": "sharp",
+        "very_sharp": "very sharp"
+    },
+    "zh": {
+        "very_slight": "极小幅",
+        "slight": "小幅",
+        "turn": " ",
+        "sharp": "急",
+        "very_sharp": "极急"
+    },
+    "th": {
+        "very_slight": "เอียงเล็กมาก",
+        "slight": "เล็กน้อย",
+        "turn": "เลี้ยว",
+        "sharp": "หัก",
+        "very_sharp": "หักมาก"
+    }
+}
+
+DIRECTION_TEXT = {
+    "en": {"left": "left", "right": "right"},
+    "zh": {"left": "左", "right": "右"},
+    "th": {"left": "ซ้าย", "right": "ขวา"}
+}
+
+# ---- New: localization maps for arrive directions ----
+
+ARRIVE_DIR_TEXT = {
+    "en": {
+        "ahead": "ahead",
+        "behind": "behind",
+        "very_slight_left": "very slight left",
+        "slight_left": "slight left",
+        "turn_left": "left",
+        "sharp_left": "sharp left",
+        "very_sharp_left": "very sharp left",
+        "very_slight_right": "very slight right",
+        "slight_right": "slight right",
+        "turn_right": "right",
+        "sharp_right": "sharp right",
+        "very_sharp_right": "very sharp right",
+        "u_turn": "behind"
+    },
+    "zh": {
+        "ahead": "正前方",
+        "behind": "正后方",
+        "very_slight_left": "极小幅左侧",
+        "slight_left": "小幅左侧",
+        "turn_left": "左侧",
+        "sharp_left": "急左侧",
+        "very_sharp_left": "极急左侧",
+        "very_slight_right": "极小幅右侧",
+        "slight_right": "小幅右侧",
+        "turn_right": "右侧",
+        "sharp_right": "急右侧",
+        "very_sharp_right": "极急右侧",
+        "u_turn": "正后方"
+    },
+    "th": {
+        "ahead": "ข้างหน้า",
+        "behind": "ข้างหลัง",
+        "very_slight_left": "เอียงซ้ายเล็กมาก",
+        "slight_left": "ซ้ายน้อย",
+        "turn_left": "ซ้าย",
+        "sharp_left": "ซ้ายหัก",
+        "very_sharp_left": "ซ้ายหักมาก",
+        "very_slight_right": "เอียงขวาเล็กมาก",
+        "slight_right": "ขวาน้อย",
+        "turn_right": "ขวา",
+        "sharp_right": "ขวาหัก",
+        "very_sharp_right": "ขวาหักมาก",
+        "u_turn": "ข้างหลัง"
+    }
+}
+
+def _localize_turn_tokens(lang: str, kwargs: dict) -> dict:
+    """
+    If this is a 'turn' template, localize 'qual' and 'direction' tokens in-place.
+    Callers provide tokens like qual='very_slight', direction='left'.
+    """
+    if "qual" in kwargs:
+        qual_token = kwargs["qual"]
+        qual_map = QUAL_TEXT.get(lang) or QUAL_TEXT["en"]
+        kwargs["qual"] = qual_map.get(qual_token, str(qual_token)).strip()
+    if "direction" in kwargs:
+        dir_token = kwargs["direction"]
+        dir_map = DIRECTION_TEXT.get(lang) or DIRECTION_TEXT["en"]
+        kwargs["direction"] = dir_map.get(dir_token, str(dir_token))
+    return kwargs
+
 
 def nav_text(key: str, lang: str, **kwargs) -> str:
-    """Get navigation instruction by key and language, with formatted params."""
     tpl = NAV_TEXT.get(key, {})
     text = tpl.get(lang) or tpl.get("en") or ""
+
+    if key == "turn":
+        kwargs = _localize_turn_tokens(lang, kwargs)
+
+    if key == "arrive":
+        # Expect tokens: qual + direction OR precomputed dir_word
+        if "qual" in kwargs and "direction" in kwargs:
+            token = f"{kwargs['qual']}_{kwargs['direction']}"
+            dir_map = ARRIVE_DIR_TEXT.get(lang) or ARRIVE_DIR_TEXT["en"]
+            kwargs["dir_word"] = dir_map.get(token, dir_map.get("ahead"))
+        elif "dir_word" not in kwargs:
+            kwargs["dir_word"] = ARRIVE_DIR_TEXT.get(lang, {}).get("ahead", "ahead")
+
     return text.format(**kwargs)
+
+
 
 def unit_text(value: float, unit: str, lang: str) -> str:
     """Get a localized distance string for value/unit/language."""
