@@ -2,20 +2,24 @@
 # -*- coding: utf-8 -*-
 
 """
-Navigation text templates and simple localization helpers.
+Navigation text templates, localization helpers, and TTS-safe rendering.
 
-- Callers pass semantic tokens (e.g., qual='very_slight', direction='left').
-- nav_text() will localize these tokens for the 'turn' template automatically.
-- Distance unit strings are provided by unit_text().
-
-Turn phrasing modes supported:
-  1) "default" (clock/qual style): qual + direction + hour o'clock; U-turn is a short dedicated phrase.
-  2) "deg15" (degree style): direction + N degrees (N quantized by 15°); U-turn is still the short phrase.
+Key points:
+- All public renderers (nav_text, unit_text) return TTS-sanitized strings.
+- "turn" supports clock/qual phrasing; "turn_deg" supports degree-based phrasing.
+- "arrive" auto-composes a human-friendly direction word from (qual, direction).
 """
 
-# --- Core templates ---
+from __future__ import annotations
 
-NAV_TEXT = {
+import re
+from typing import Dict
+
+# ---------------------------------------------------------------------------
+# Templates
+# ---------------------------------------------------------------------------
+
+NAV_TEXT: Dict[str, Dict[str, str]] = {
     "start_in": {
         "en": "You are currently in {room} on {floor} of {building}, {place}.",
         "zh": "您目前在{place}{building}{floor}的{room}。",
@@ -110,34 +114,14 @@ NAV_TEXT = {
     }
 }
 
-# --- Units ---
-
-UNIT_TEXT = {
-    "meter": {
-        "en": "{v} meters",
-        "zh": "{v}米",
-        "th": "{v} เมตร"
-    },
-    "meter_1": {
-        "en": "1 meter",
-        "zh": "1米",
-        "th": "1 เมตร"
-    },
-    "feet": {
-        "en": "{v} feet",
-        "zh": "{v}英尺",
-        "th": "{v} ฟุต"
-    },
-    "feet_1": {
-        "en": "1 foot",
-        "zh": "1英尺",
-        "th": "1 ฟุต"
-    }
+UNIT_TEXT: Dict[str, Dict[str, str]] = {
+    "meter":   {"en": "{v} meters", "zh": "{v}米",   "th": "{v} เมตร"},
+    "meter_1": {"en": "1 meter",    "zh": "1米",     "th": "1 เมตร"},
+    "feet":    {"en": "{v} feet",   "zh": "{v}英尺", "th": "{v} ฟุต"},
+    "feet_1":  {"en": "1 foot",     "zh": "1英尺",   "th": "1 ฟุต"}
 }
 
-# --- Localization maps for turn qualifiers and directions ---
-
-QUAL_TEXT = {
+QUAL_TEXT: Dict[str, Dict[str, str]] = {
     "en": {
         "very_slight": "very slight",
         "slight": "slight",
@@ -164,15 +148,13 @@ QUAL_TEXT = {
     }
 }
 
-DIRECTION_TEXT = {
+DIRECTION_TEXT: Dict[str, Dict[str, str]] = {
     "en": {"left": "left", "right": "right"},
     "zh": {"left": "左", "right": "右"},
     "th": {"left": "ซ้าย", "right": "ขวา"}
 }
 
-# --- Arrival direction words (composites of qual + direction) ---
-
-ARRIVE_DIR_TEXT = {
+ARRIVE_DIR_TEXT: Dict[str, Dict[str, str]] = {
     "en": {
         "ahead": "ahead",
         "behind": "behind",
@@ -220,67 +202,85 @@ ARRIVE_DIR_TEXT = {
     }
 }
 
+# ---------------------------------------------------------------------------
+# TTS sanitization
+# ---------------------------------------------------------------------------
+
+# Replace runs of these symbols with a single space to avoid TTS reading them.
+_SANITIZE_PATTERN = re.compile(r"[_+\@\#\$\%\^\&\*\=\~\`\|\:\\\/]+")
+_MULTI_SPACE = re.compile(r"\s{2,}")
+
+def _sanitize_for_tts(s: str) -> str:
+    """
+    Make a sentence safe for screen reader / TTS engines.
+
+    Steps:
+      1) Replace disallowed symbol runs with a single space.
+      2) Collapse multiple spaces.
+      3) Trim leading/trailing spaces.
+      4) Remove spaces before common punctuation (English and Chinese).
+    """
+    if not s:
+        return s
+    s = _SANITIZE_PATTERN.sub(" ", s)
+    s = _MULTI_SPACE.sub(" ", s).strip()
+    s = re.sub(r"\s+([,.;:!?])", r"\1", s)
+    s = re.sub(r"\s+([，。！？；：、])", r"\1", s)
+    return s
+
+# ---------------------------------------------------------------------------
+# Localization helpers
+# ---------------------------------------------------------------------------
 
 def _localize_turn_tokens(lang: str, kwargs: dict) -> dict:
-    """
-    Localize 'qual' and 'direction' tokens for the 'turn' template.
-
-    For qual == 'u_turn', nav_text('turn', ...) will short-circuit to a dedicated short phrase.
-    """
+    """Localize 'qual' and 'direction' for the 'turn' template."""
     if "qual" in kwargs:
-        qual_token = kwargs["qual"]
         qual_map = QUAL_TEXT.get(lang) or QUAL_TEXT["en"]
-        kwargs["qual"] = qual_map.get(qual_token, str(qual_token)).strip()
+        kwargs["qual"] = qual_map.get(kwargs["qual"], str(kwargs["qual"])).strip()
     if "direction" in kwargs:
-        dir_token = kwargs["direction"]
         dir_map = DIRECTION_TEXT.get(lang) or DIRECTION_TEXT["en"]
-        kwargs["direction"] = dir_map.get(dir_token, str(dir_token))
+        kwargs["direction"] = dir_map.get(kwargs["direction"], str(kwargs["direction"]))
     return kwargs
-
 
 def _localize_direction_only(lang: str, kwargs: dict) -> dict:
-    """
-    Localize only the 'direction' token for the 'turn_deg' template.
-    """
+    """Localize only the 'direction' token for the 'turn_deg' template."""
     if "direction" in kwargs:
-        dir_token = kwargs["direction"]
         dir_map = DIRECTION_TEXT.get(lang) or DIRECTION_TEXT["en"]
-        kwargs["direction"] = dir_map.get(dir_token, str(dir_token))
+        kwargs["direction"] = dir_map.get(kwargs["direction"], str(kwargs["direction"]))
     return kwargs
 
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def nav_text(key: str, lang: str, **kwargs) -> str:
     """
-    Render a localized navigation sentence.
+    Render a localized navigation sentence (TTS-safe).
 
     Special handling:
-      - key == "turn" and qual == "u_turn": return a short language-specific U-turn phrase.
-      - key == "turn_deg": localize direction and render '{direction} {deg} degrees'.
-      - key == "arrive": compute 'dir_word' from qual + direction if not provided.
+      - key == "turn" with qual == "u_turn" -> short U-turn phrase.
+      - key == "turn_deg" -> localize direction and render '{direction} {deg} degrees'.
+      - key == "arrive" -> compute 'dir_word' from qual + direction if not provided.
     """
     # Degree-based turn
     if key == "turn_deg":
-        # U-turn never speaks degrees; callers should not route U-turn here,
-        # but if they do, still return the short phrase for safety.
         if kwargs.get("qual") == "u_turn":
-            u_tpl = NAV_TEXT["u_turn"]
-            return u_tpl.get(lang) or u_tpl.get("en")
+            text = (NAV_TEXT["u_turn"].get(lang) or NAV_TEXT["u_turn"]["en"])
+            return _sanitize_for_tts(text)
         kwargs = _localize_direction_only(lang, kwargs)
-        tpl = NAV_TEXT["turn_deg"]
-        text = tpl.get(lang) or tpl.get("en")
-        return text.format(**kwargs)
+        text = (NAV_TEXT["turn_deg"].get(lang) or NAV_TEXT["turn_deg"]["en"]).format(**kwargs)
+        return _sanitize_for_tts(text)
 
-    # Default turn (clock/qual style)
+    # Default turn
     if key == "turn":
         if kwargs.get("qual") == "u_turn":
-            u_tpl = NAV_TEXT["u_turn"]
-            return u_tpl.get(lang) or u_tpl.get("en")
+            text = (NAV_TEXT["u_turn"].get(lang) or NAV_TEXT["u_turn"]["en"])
+            return _sanitize_for_tts(text)
         kwargs = _localize_turn_tokens(lang, kwargs)
-        tpl = NAV_TEXT["turn"]
-        text = tpl.get(lang) or tpl.get("en")
-        return text.format(**kwargs)
+        text = (NAV_TEXT["turn"].get(lang) or NAV_TEXT["turn"]["en"]).format(**kwargs)
+        return _sanitize_for_tts(text)
 
-    # Arrival handling
+    # Arrival
     if key == "arrive":
         if "qual" in kwargs and "direction" in kwargs:
             token = f"{kwargs['qual']}_{kwargs['direction']}"
@@ -288,32 +288,25 @@ def nav_text(key: str, lang: str, **kwargs) -> str:
             kwargs["dir_word"] = dir_map.get(token, dir_map.get("ahead"))
         elif "dir_word" not in kwargs:
             kwargs["dir_word"] = (ARRIVE_DIR_TEXT.get(lang) or ARRIVE_DIR_TEXT["en"]).get("ahead", "ahead")
-        tpl = NAV_TEXT["arrive"]
-        text = tpl.get(lang) or tpl.get("en")
-        return text.format(**kwargs)
+        text = (NAV_TEXT["arrive"].get(lang) or NAV_TEXT["arrive"]["en"]).format(**kwargs)
+        return _sanitize_for_tts(text)
 
-    # Generic fallback
+    # Generic
     tpl = NAV_TEXT.get(key, {})
-    text = tpl.get(lang) or tpl.get("en") or ""
-    return text.format(**kwargs)
+    text = (tpl.get(lang) or tpl.get("en") or "").format(**kwargs)
+    return _sanitize_for_tts(text)
 
 
 def unit_text(value: float, unit: str, lang: str) -> str:
     """
-    Get a localized distance string for value/unit/language.
-
-    Rounds to nearest integer for clean TTS/UI.
+    Get a localized distance string for value/unit/language (TTS-safe).
+    Rounds to the nearest integer for clean TTS/UI.
     """
     v_int = int(round(value))
     if unit == "meter":
-        if v_int == 1:
-            return UNIT_TEXT["meter_1"][lang]
-        else:
-            return UNIT_TEXT["meter"][lang].format(v=v_int)
+        text = UNIT_TEXT["meter_1"][lang] if v_int == 1 else UNIT_TEXT["meter"][lang].format(v=v_int)
     elif unit == "feet":
-        if v_int == 1:
-            return UNIT_TEXT["feet_1"][lang]
-        else:
-            return UNIT_TEXT["feet"][lang].format(v=v_int)
+        text = UNIT_TEXT["feet_1"][lang] if v_int == 1 else UNIT_TEXT["feet"][lang].format(v=v_int)
     else:
         raise ValueError("Unit must be 'meter' or 'feet'")
+    return _sanitize_for_tts(text)
