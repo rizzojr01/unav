@@ -1,4 +1,5 @@
 # nav_text.py
+# -*- coding: utf-8 -*-
 
 """
 Navigation text templates and simple localization helpers.
@@ -6,7 +7,13 @@ Navigation text templates and simple localization helpers.
 - Callers pass semantic tokens (e.g., qual='very_slight', direction='left').
 - nav_text() will localize these tokens for the 'turn' template automatically.
 - Distance unit strings are provided by unit_text().
+
+Turn phrasing modes supported:
+  1) "default" (clock/qual style): qual + direction + hour o'clock; U-turn is a short dedicated phrase.
+  2) "deg15" (degree style): direction + N degrees (N quantized by 15°); U-turn is still the short phrase.
 """
+
+# --- Core templates ---
 
 NAV_TEXT = {
     "start_in": {
@@ -74,23 +81,36 @@ NAV_TEXT = {
         "zh": "前往{building}{floor}。",
         "th": "ไปที่ชั้น {floor} อาคาร {building}"
     },
+
+    # Default turn: qual + direction + hour (U-turn handled specially)
     "turn": {
-        # NOTE: {qual} and {direction} are localized automatically in nav_text()
         "en": "{qual} {direction} to {hour} o'clock",
         "zh": "{hour}点方向{qual}{direction}转弯",
         "th": "{qual} เลี้ยว{direction} ไปทาง {hour} นาฬิกา"
     },
-    "u_turn": {
-        "en": "Make a U-turn (6 o'clock)",
-        "zh": "掉头（6点方向）",
-        "th": "กลับรถ (6 นาฬิกา)"
+
+    # Degree-based turn: direction + N degrees
+    "turn_deg": {
+        "en": "Turn {direction} {deg} degrees",
+        "zh": "向{direction}转{deg}度",
+        "th": "เลี้ยว{direction} {deg} องศา"
     },
+
+    # Dedicated short phrase for U-turn (used in both modes)
+    "u_turn": {
+        "en": "Make a U-turn",
+        "zh": "掉头",
+        "th": "กลับรถ"
+    },
+
     "arrive": {
         "en": "{label} on {hour} o'clock {dir_word}",
         "zh": "{label}在{hour}点方向{dir_word}",
         "th": "{label} ที่ {hour} นาฬิกา {dir_word}"
     }
 }
+
+# --- Units ---
 
 UNIT_TEXT = {
     "meter": {
@@ -115,30 +135,32 @@ UNIT_TEXT = {
     }
 }
 
-# ---- New: localization maps for turn qualifiers and directions ----
+# --- Localization maps for turn qualifiers and directions ---
 
 QUAL_TEXT = {
-    # Tokens expected from the planner: 'very_slight','slight','turn','sharp','very_sharp'
     "en": {
         "very_slight": "very slight",
         "slight": "slight",
         "turn": "turn",
         "sharp": "sharp",
-        "very_sharp": "very sharp"
+        "very_sharp": "very sharp",
+        "u_turn": "U-turn"
     },
     "zh": {
         "very_slight": "极小幅",
         "slight": "小幅",
         "turn": " ",
         "sharp": "急",
-        "very_sharp": "极急"
+        "very_sharp": "极急",
+        "u_turn": "掉头"
     },
     "th": {
         "very_slight": "เอียงเล็กมาก",
         "slight": "เล็กน้อย",
         "turn": "เลี้ยว",
         "sharp": "หัก",
-        "very_sharp": "หักมาก"
+        "very_sharp": "หักมาก",
+        "u_turn": "กลับรถ"
     }
 }
 
@@ -148,7 +170,7 @@ DIRECTION_TEXT = {
     "th": {"left": "ซ้าย", "right": "ขวา"}
 }
 
-# ---- New: localization maps for arrive directions ----
+# --- Arrival direction words (composites of qual + direction) ---
 
 ARRIVE_DIR_TEXT = {
     "en": {
@@ -198,10 +220,12 @@ ARRIVE_DIR_TEXT = {
     }
 }
 
+
 def _localize_turn_tokens(lang: str, kwargs: dict) -> dict:
     """
-    If this is a 'turn' template, localize 'qual' and 'direction' tokens in-place.
-    Callers provide tokens like qual='very_slight', direction='left'.
+    Localize 'qual' and 'direction' tokens for the 'turn' template.
+
+    For qual == 'u_turn', nav_text('turn', ...) will short-circuit to a dedicated short phrase.
     """
     if "qual" in kwargs:
         qual_token = kwargs["qual"]
@@ -214,28 +238,72 @@ def _localize_turn_tokens(lang: str, kwargs: dict) -> dict:
     return kwargs
 
 
+def _localize_direction_only(lang: str, kwargs: dict) -> dict:
+    """
+    Localize only the 'direction' token for the 'turn_deg' template.
+    """
+    if "direction" in kwargs:
+        dir_token = kwargs["direction"]
+        dir_map = DIRECTION_TEXT.get(lang) or DIRECTION_TEXT["en"]
+        kwargs["direction"] = dir_map.get(dir_token, str(dir_token))
+    return kwargs
+
+
 def nav_text(key: str, lang: str, **kwargs) -> str:
-    tpl = NAV_TEXT.get(key, {})
-    text = tpl.get(lang) or tpl.get("en") or ""
+    """
+    Render a localized navigation sentence.
 
+    Special handling:
+      - key == "turn" and qual == "u_turn": return a short language-specific U-turn phrase.
+      - key == "turn_deg": localize direction and render '{direction} {deg} degrees'.
+      - key == "arrive": compute 'dir_word' from qual + direction if not provided.
+    """
+    # Degree-based turn
+    if key == "turn_deg":
+        # U-turn never speaks degrees; callers should not route U-turn here,
+        # but if they do, still return the short phrase for safety.
+        if kwargs.get("qual") == "u_turn":
+            u_tpl = NAV_TEXT["u_turn"]
+            return u_tpl.get(lang) or u_tpl.get("en")
+        kwargs = _localize_direction_only(lang, kwargs)
+        tpl = NAV_TEXT["turn_deg"]
+        text = tpl.get(lang) or tpl.get("en")
+        return text.format(**kwargs)
+
+    # Default turn (clock/qual style)
     if key == "turn":
+        if kwargs.get("qual") == "u_turn":
+            u_tpl = NAV_TEXT["u_turn"]
+            return u_tpl.get(lang) or u_tpl.get("en")
         kwargs = _localize_turn_tokens(lang, kwargs)
+        tpl = NAV_TEXT["turn"]
+        text = tpl.get(lang) or tpl.get("en")
+        return text.format(**kwargs)
 
+    # Arrival handling
     if key == "arrive":
-        # Expect tokens: qual + direction OR precomputed dir_word
         if "qual" in kwargs and "direction" in kwargs:
             token = f"{kwargs['qual']}_{kwargs['direction']}"
             dir_map = ARRIVE_DIR_TEXT.get(lang) or ARRIVE_DIR_TEXT["en"]
             kwargs["dir_word"] = dir_map.get(token, dir_map.get("ahead"))
         elif "dir_word" not in kwargs:
-            kwargs["dir_word"] = ARRIVE_DIR_TEXT.get(lang, {}).get("ahead", "ahead")
+            kwargs["dir_word"] = (ARRIVE_DIR_TEXT.get(lang) or ARRIVE_DIR_TEXT["en"]).get("ahead", "ahead")
+        tpl = NAV_TEXT["arrive"]
+        text = tpl.get(lang) or tpl.get("en")
+        return text.format(**kwargs)
 
+    # Generic fallback
+    tpl = NAV_TEXT.get(key, {})
+    text = tpl.get(lang) or tpl.get("en") or ""
     return text.format(**kwargs)
 
 
-
 def unit_text(value: float, unit: str, lang: str) -> str:
-    """Get a localized distance string for value/unit/language."""
+    """
+    Get a localized distance string for value/unit/language.
+
+    Rounds to nearest integer for clean TTS/UI.
+    """
     v_int = int(round(value))
     if unit == "meter":
         if v_int == 1:
