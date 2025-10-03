@@ -129,37 +129,26 @@ class I18NLabels:
 
 
 def _ensure_labels(labels: Optional[I18NLabels],
-                   data_final_root: Optional[Union[str, Path]],
-                   debug: bool = False) -> I18NLabels:
+                   data_final_root: Optional[Union[str, Path]]) -> I18NLabels:
     if labels:
-        if debug:
-            print("[labels] using provided I18NLabels object")
         return labels
     if data_final_root:
-        if debug:
-            print(f"[labels] loading from {data_final_root}/_i18n/labels.json")
         return I18NLabels.load_from_root(data_final_root)
-    if debug:
-        print("[labels] no labels or root provided; using empty labels")
     return I18NLabels()
 
 
-def _label_entity(labels: I18NLabels, section: str, key: str, lang: str, fallback: str, debug: bool = False) -> str:
-    text = labels.get(section, key, lang, fallback)
-    if debug:
-        print(f"[label] section={section} key={key} lang={lang} -> '{text}' (fallback='{fallback}')")
-    return text
+def _label_entity(labels: I18NLabels, section: str, key: str, lang: str, fallback: str) -> str:
+    return labels.get(section, key, lang, fallback)
 
 
-# -------------------------- Debug-friendly helpers --------------------------
+# -------------------------- Forward flush & door detection --------------------------
 
 def _flush_forward_if_needed(commands: List[Dict[str, Any]],
                              straight_px: float,
                              scale_m_per_px: float,
                              unit: Literal["meter", "feet"],
                              lang: str,
-                             door_events: List[Dict[str, Any]],
-                             debug: bool) -> float:
+                             door_events: List[Dict[str, Any]]) -> float:
     """
     将累计的直行距离输出成 forward/forward_door 指令，并清空累计值和门事件。
     返回清零后的累计距离（通常为 0）。
@@ -178,9 +167,6 @@ def _flush_forward_if_needed(commands: List[Dict[str, Any]],
             "text": nav_text("forward_door", lang, dist=dist_text, door_dist=door_text),
             "meta": {"distance": dist_val, "unit": dist_unit, "door_distance": door_val, "door_unit": door_unit}
         })
-        if debug:
-            print(f"[flush] forward_door: dist_px={straight_px:.3f} -> {dist_text}, "
-                  f"first_door_px={door_first['dist_px']:.3f} -> {door_text}")
         door_events.clear()
     else:
         commands.append({
@@ -188,8 +174,6 @@ def _flush_forward_if_needed(commands: List[Dict[str, Any]],
             "text": nav_text("forward", lang, dist=dist_text),
             "meta": {"distance": dist_val, "unit": dist_unit}
         })
-        if debug:
-            print(f"[flush] forward: dist_px={straight_px:.3f} -> {dist_text}")
 
     return 0.0
 
@@ -198,8 +182,7 @@ def _append_door_event_if_any(navigator: Any,
                               key_tuple: Any,
                               p0: Tuple[float, float],
                               p1: Tuple[float, float],
-                              i_idx: int,
-                              debug: bool) -> Optional[Dict[str, Any]]:
+                              i_idx: int) -> Optional[Dict[str, Any]]:
     """
     如果 shapely 可用且当前楼层含有 door 多边形，检测线段是否穿过一扇门。
     返回 {'dist_px': float, 'idx': i_idx} 或 None。
@@ -217,8 +200,6 @@ def _append_door_event_if_any(navigator: Any,
     for door_poly, _ in pf.door_polygons:
         if seg.crosses(door_poly):
             proj_px = seg.project(door_poly.centroid)
-            if debug:
-                print(f"[door] seg idx={i_idx} crosses a door; proj_px={proj_px:.3f}")
             return {"dist_px": float(proj_px), "idx": i_idx}
     return None
 
@@ -235,17 +216,12 @@ def commands_from_result(
     *,
     labels: Optional[I18NLabels] = None,
     data_final_root: Optional[Union[str, Path]] = None,
-    debug: bool = False,
 ) -> List[Dict[str, Any]]:
     """
-    生成逐步导航指令（包含丰富的 print 调试信息）。
+    生成逐步导航指令（无调试输出）。
     返回: List[{"tag","text","meta"}]
     """
-    if debug:
-        print("\n================= commands_from_result BEGIN =================")
-        print(f"lang={language} unit={unit} turn_mode={turn_mode} shapely={_HAS_SHAPELY}")
-
-    labels = _ensure_labels(labels, data_final_root, debug=debug)
+    labels = _ensure_labels(labels, data_final_root)
 
     if "error" in path_result:
         raise ValueError(f"Cannot generate commands: {path_result['error']}")
@@ -254,9 +230,6 @@ def commands_from_result(
     keys: List[Union[str, Tuple[str, str, str, int]]] = path_result.get("path_keys") or []
     labels_seq: List[str] = path_result.get("path_labels") or []
     descriptions: List[str] = path_result.get("path_descriptions") or []
-
-    if debug:
-        print(f"coords={len(coords)} keys={len(keys)} labels={len(labels_seq)} descs={len(descriptions)}")
 
     commands: List[Dict[str, Any]] = []
     heading = float(initial_heading)
@@ -268,21 +241,17 @@ def commands_from_result(
         pf0 = getattr(navigator, "pf_map", {}).get(floor_key)
         room = pf0.get_current_room(coords[0]) if (pf0 and hasattr(pf0, "get_current_room")) else ""
 
-        place_name = _label_entity(labels, "places", place, language, place, debug=debug)
-        building_name = _label_entity(labels, "buildings", f"{place}/{building}", language, building, debug=debug)
-        floor_name = _label_entity(labels, "floors", f"{place}/{building}/{floor}", language, floor, debug=debug)
+        place_name = _label_entity(labels, "places", place, language, place)
+        building_name = _label_entity(labels, "buildings", f"{place}/{building}", language, building)
+        floor_name = _label_entity(labels, "floors", f"{place}/{building}/{floor}", language, floor)
 
         commands.append({
             "tag": "start_in",
             "text": nav_text("start_in", language, room=room, floor=floor_name, building=building_name, place=place_name),
             "meta": {"room": room, "floor": floor, "building": building, "place": place}
         })
-        if debug:
-            print(f"[start] in room='{room}' floor='{floor_name}' building='{building_name}' place='{place_name}'")
     else:
         commands.append({"tag": "start_nav", "text": nav_text("start_nav", language), "meta": {}})
-        if debug:
-            print("[start] generic start_nav")
 
     # ---------- Main loop ----------
     i = 0
@@ -304,9 +273,6 @@ def commands_from_result(
         dx, dy = p1[0] - p0[0], p0[1] - p1[1]
         seg_len_px = math.hypot(dx, dy)
 
-        if debug:
-            print(f"\n[seg {i}] key0={key0} -> key1={key1} scale={scale:.6f} len_px={seg_len_px:.3f} desc='{desc1}'")
-
         # ---- 跨 place/building/floor 的处理 ----
         if (isinstance(key0, tuple) and len(key0) == 4 and isinstance(key1, tuple) and len(key1) == 4):
             place0, building0, floor0, _ = key0
@@ -314,66 +280,56 @@ def commands_from_result(
 
             if (place0, building0, floor0) != (place1, building1, floor1):
                 # flush 累计直行
-                if debug:
-                    print("[transition] floor/building/place changed -> flush forward before transition")
-                straight_px = _flush_forward_if_needed(commands, straight_px, scale, unit, language, door_events, debug)
+                straight_px = _flush_forward_if_needed(commands, straight_px, scale, unit, language, door_events)
 
                 # place 变更
                 if place0 != place1:
-                    place_name = _label_entity(labels, "places", place1, language, place1, debug=debug)
+                    place_name = _label_entity(labels, "places", place1, language, place1)
                     commands.append({
                         "tag": "transition_place",
                         "text": nav_text("transition_place", language, place=place_name),
                         "meta": {"place": place1}
                     })
-                    building_name = _label_entity(labels, "buildings", f"{place1}/{building1}", language, building1, debug=debug)
-                    floor_name = _label_entity(labels, "floors", f"{place1}/{building1}/{floor1}", language, floor1, debug=debug)
+                    building_name = _label_entity(labels, "buildings", f"{place1}/{building1}", language, building1)
+                    floor_name = _label_entity(labels, "floors", f"{place1}/{building1}/{floor1}", language, floor1)
                     commands.append({
                         "tag": "proceed_to",
                         "text": nav_text("proceed_to", language, floor=floor_name, building=building_name, place=place_name),
                         "meta": {"floor": floor1, "building": building1, "place": place1}
                     })
-                    if debug:
-                        print(f"[transition] place {place0} -> {place1}")
 
                 # building 变更
                 elif building0 != building1:
-                    building_name = _label_entity(labels, "buildings", f"{place1}/{building1}", language, building1, debug=debug)
+                    building_name = _label_entity(labels, "buildings", f"{place1}/{building1}", language, building1)
                     commands.append({
                         "tag": "transition_building",
                         "text": nav_text("transition_place", language, place=building_name),
                         "meta": {"building": building1}
                     })
-                    floor_name = _label_entity(labels, "floors", f"{place1}/{building1}/{floor1}", language, floor1, debug=debug)
+                    floor_name = _label_entity(labels, "floors", f"{place1}/{building1}/{floor1}", language, floor1)
                     commands.append({
                         "tag": "proceed_to_floor",
                         "text": nav_text("proceed_to_floor", language, floor=floor_name, building=building_name),
                         "meta": {"floor": floor1, "building": building1}
                     })
-                    if debug:
-                        print(f"[transition] building {building0} -> {building1}")
 
                 # floor 变更
                 elif floor0 != floor1:
                     # 接近提示
                     if "stair" in desc1:
                         commands.append({"tag": "approaching_stair", "text": nav_text("approaching_stair", language), "meta": {}})
-                        if debug: print("[transition] approaching staircase")
                     elif "elevator" in desc1:
                         commands.append({"tag": "approaching_elevator", "text": nav_text("approaching_elevator", language), "meta": {}})
-                        if debug: print("[transition] approaching elevator")
                     elif "escalator" in desc1:
                         commands.append({"tag": "approaching_escalator", "text": nav_text("approaching_escalator", language), "meta": {}})
-                        if debug: print("[transition] approaching escalator")
                     else:
-                        building_name = _label_entity(labels, "buildings", f"{place1}/{building1}", language, building1, debug=debug)
-                        floor_name = _label_entity(labels, "floors", f"{place1}/{building1}/{floor1}", language, floor1, debug=debug)
+                        building_name = _label_entity(labels, "buildings", f"{place1}/{building1}", language, building1)
+                        floor_name = _label_entity(labels, "floors", f"{place1}/{building1}/{floor1}", language, floor1)
                         commands.append({
                             "tag": "proceed_to_floor",
                             "text": nav_text("proceed_to_floor", language, floor=floor_name, building=building_name),
                             "meta": {"floor": floor1, "building": building1}
                         })
-                        if debug: print("[transition] proceed_to_floor")
 
                     # 上/下判断
                     try:
@@ -383,21 +339,21 @@ def commands_from_result(
                     except Exception:
                         ud = "up" if str(floor1) > str(floor0) else "down"
 
-                    tag = "go_up_stair" if "stair" in desc1 else ("go_up_elevator" if "elevator" in desc1 else ("go_up_escalator" if "escalator" in desc1 else "proceed_to_floor"))
-                    building_name = _label_entity(labels, "buildings", f"{place1}/{building1}", language, building1, debug=debug)
-                    floor_name = _label_entity(labels, "floors", f"{place1}/{building1}/{floor1}", language, floor1, debug=debug)
+                    tag = (
+                        "go_up_stair" if "stair" in desc1 else
+                        ("go_up_elevator" if "elevator" in desc1 else
+                         ("go_up_escalator" if "escalator" in desc1 else "proceed_to_floor"))
+                    )
+                    building_name = _label_entity(labels, "buildings", f"{place1}/{building1}", language, building1)
+                    floor_name = _label_entity(labels, "floors", f"{place1}/{building1}/{floor1}", language, floor1)
                     commands.append({
                         "tag": tag,
                         "text": nav_text(tag, language, direction=ud, floor=floor_name, building=building_name),
                         "meta": {"direction": ud, "floor": floor1, "building": building1}
                     })
-                    if debug:
-                        print(f"[transition] floor {floor0}->{floor1} by {tag}, direction={ud}")
 
-                # 重置朝向策略（可选，这里采用重置为初始朝向）
+                # 重置朝向策略（重置为初始朝向）
                 heading = float(initial_heading)
-                if debug:
-                    print(f"[heading] reset to initial {heading:.2f} after transition")
                 i += 1
                 continue
 
@@ -408,40 +364,39 @@ def commands_from_result(
         hour = angle_to_clock_hour(turn)
         deg15 = quantize_degrees_15(turn)
 
-        if debug:
-            print(f"[turn] bearing={bearing:.2f} heading_old={heading:.2f} -> turn={turn:.2f} "
-                  f"qual={qual} dir={direction_word} hour={hour} deg15={deg15}")
-
         is_turn_event = (qual != "ahead")
         if is_turn_event:
             # 先 flush 直行段
-            straight_px = _flush_forward_if_needed(commands, straight_px, scale, unit, language, door_events, debug)
+            straight_px = _flush_forward_if_needed(commands, straight_px, scale, unit, language, door_events)
 
             if turn_mode == "deg15":
                 if qual == "u_turn":
-                    commands.append({"tag": "turn", "text": nav_text("turn", language, qual="u_turn"), "meta": {"qual": "u_turn", "direction": direction_word}})
+                    commands.append({
+                        "tag": "turn",
+                        "text": nav_text("turn", language, qual="u_turn"),
+                        "meta": {"qual": "u_turn", "direction": direction_word}
+                    })
                 else:
-                    commands.append({"tag": "turn", "text": nav_text("turn_deg", language, direction=direction_word, deg=deg15),
-                                     "meta": {"qual": qual, "direction": direction_word, "hour": hour, "deg15": deg15}})
+                    commands.append({
+                        "tag": "turn",
+                        "text": nav_text("turn_deg", language, direction=direction_word, deg=deg15),
+                        "meta": {"qual": qual, "direction": direction_word, "hour": hour, "deg15": deg15}
+                    })
             else:
-                commands.append({"tag": "turn", "text": nav_text("turn", language, qual=qual, direction=direction_word, hour=hour),
-                                 "meta": {"qual": qual, "direction": direction_word, "hour": hour, "deg15": deg15}})
-
-            if debug:
-                print(f"[emit] turn -> tag='turn' ({'deg15' if turn_mode=='deg15' else 'default'})")
+                commands.append({
+                    "tag": "turn",
+                    "text": nav_text("turn", language, qual=qual, direction=direction_word, hour=hour),
+                    "meta": {"qual": qual, "direction": direction_word, "hour": hour, "deg15": deg15}
+                })
 
             # 更新朝向
             heading = bearing
-            if debug:
-                print(f"[heading] updated to {heading:.2f}")
 
         # 累加直行像素
         straight_px += seg_len_px
-        if debug:
-            print(f"[accum] straight_px += {seg_len_px:.3f} -> {straight_px:.3f}")
 
         # 门检测
-        door_evt = _append_door_event_if_any(navigator, key0, p0, p1, i, debug)
+        door_evt = _append_door_event_if_any(navigator, key0, p0, p1, i)
         if door_evt:
             door_events.append(door_evt)
 
@@ -454,42 +409,26 @@ def commands_from_result(
             bearing2 = math.degrees(math.atan2(dy2, dx2))
             next_turn = abs(normalize_angle(bearing2 - heading)) >= 25.0
             need_flush_now = next_turn
-
-            if debug:
-                print(f"[lookahead] bearing2={bearing2:.2f} next_turn={next_turn}")
         else:
             need_flush_now = True  # 最后一段必须 flush
-            if debug:
-                print("[lookahead] last segment -> will flush")
 
         if need_flush_now:
-            straight_px = _flush_forward_if_needed(commands, straight_px, scale, unit, language, door_events, debug)
+            straight_px = _flush_forward_if_needed(commands, straight_px, scale, unit, language, door_events)
 
         i += 1
 
     # ---------- Final arrival ----------
     final_label = labels_seq[-1] if labels_seq else ""
-    if debug:
-        print(f"\n[arrive] raw_label='{final_label}' last_desc='{descriptions[-1] if descriptions else ''}'")
-
-    # 根据描述词推断期望朝向（或使用当前 heading）
     orientation_bearing = _bearing_from_desc(descriptions[-1] if descriptions else "", default=heading)
     turn_final = normalize_angle(orientation_bearing - heading)
     qual_final, direction_final = classify_turn_sector(turn_final)
     hour_final = angle_to_clock_hour(turn_final)
-
-    if debug:
-        print(f"[arrive] heading={heading:.2f} orient={orientation_bearing:.2f} "
-              f"turn={turn_final:.2f} -> qual={qual_final} dir={direction_final} hour={hour_final}")
 
     commands.append({
         "tag": "arrive",
         "text": nav_text("arrive", language, label=final_label, qual=qual_final, direction=direction_final, hour=hour_final),
         "meta": {"label": final_label, "hour": hour_final, "qual": qual_final, "direction": direction_final}
     })
-
-    if debug:
-        print(f"================= commands_from_result END ({len(commands)} cmds) =================\n")
 
     return commands
 
