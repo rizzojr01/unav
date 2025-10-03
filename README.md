@@ -62,7 +62,21 @@ Below is the **essential workflow to construct a metrically registered, navigati
 
    You must repeat this for every mapped floor/building.
 
-3. **Localization & Navigation:**  
+3. **(Optional) Translation Labels:**  
+   This step **is mandatory** for metric localization and navigation.  
+   If you need multi-language navigation instructions or place names, launch the web-based label editor.
+   This will allow you to translate places, buildings, floors, and destinations into your target languages.
+   ```sh
+   python -m unav.run_translator <data_final_root> [--port <PORT>]
+   ```
+   Example:
+   ```sh
+   python -m unav.run_translator /mnt/data/UNav-IO/data --port 5001
+   ```
+   Then open http://localhost:5001 in your browser.
+   The tool is optional: skip this step if you only need English labels.
+
+4. **Localization & Navigation:**  
    Use the generated outputs for real-time localization and navigation.  
    See example usage and API in the `localizer/` and `navigator/` folders and [project documentation](https://github.com/ai4ce/unav).
 
