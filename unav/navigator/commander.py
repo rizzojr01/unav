@@ -436,13 +436,14 @@ def commands_from_result(
     turn_final = normalize_angle(orientation_bearing - heading)
     qual_final, direction_final = classify_turn_sector(turn_final)
     hour_final = angle_to_clock_hour(turn_final)
-
+    
     commands.append({
         "tag": "arrive",
         "text": nav_text("arrive", language, label=final_label, qual=qual_final, direction=direction_final, hour=hour_final),
         "meta": {"label": final_label, "hour": hour_final, "qual": qual_final, "direction": direction_final}
     })
-
+    print(commands)
+    print(language)
     return commands
 
 
