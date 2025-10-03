@@ -1,20 +1,26 @@
 # unav/mapper/tools/i18n_label_web.py
 # -*- coding: utf-8 -*-
 """
-UNav i18n Label Editor (Web) — Auto-derived structure with destinations
+UNav Language Label Tool (Web) — Auto-derived structure with destinations
 
-What’s new in this revision:
-- FIX: Correct place/building/floor extraction in disk scan (was using wrong Path.parents indexes).
-- Tree now renders DESTINATION display names using labels.json first (target lang -> English -> fallback).
-- After saving labels or changing target language, the tree updates to show localized destination names.
+What this module provides
+-------------------------
+1) Web editor (Flask single-file app) to annotate multilingual labels for:
+   - places, buildings, floors, destinations
+   It writes to: <DATA_FINAL_ROOT>/_i18n/labels.json
+
+2) Reusable utilities for other code to import and use without the web app:
+   - load_labels(root), save_labels(root, data)
+   - build_tree(root, use_nav) -> (places, dests, used_nav)
+   - UNavI18n(data_final_root) class for label & alias lookups
 
 Behavior summary
 ----------------
-- Structure (Place → Building → Floor → Destination) is derived from data:
-  A) Preferred: FacilityNavigator (floors that have boundaries.json).
+- The structure (Place → Building → Floor → Destination) is auto-derived:
+  A) Preferred: via FacilityNavigator (floors having boundaries.json).
   B) Fallback: disk scan + per-floor destinations.json.
-- No manual structure editing. Only labeling (English + target language) and aliases.
-- Labels are saved to: <DATA_FINAL_ROOT>/_i18n/labels.json
+- There is NO manual structure editing in the web UI; only labeling and aliases.
+- Label fallback: target language → English → fallback text (ID/English from data).
 
 Run
 ---
@@ -22,13 +28,22 @@ Run
       --data-final-root /path/to/data \
       --use-nav \
       --host 127.0.0.1 --port 5009
+
+Import usage
+------------
+  from unav.mapper.tools.i18n_label_web import UNavI18n, build_tree, load_labels
+
+  i18n = UNavI18n("/mnt/data/UNav-IO/data")
+  label = i18n.get_destination_label("Place","Bld","Floor","DestId","zh-Hant","fallback")
+
+Author: UNav Team
 """
 
 from __future__ import annotations
 import json
 import argparse
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 
 from flask import Flask, request, jsonify, Response
 
@@ -40,7 +55,12 @@ except Exception:  # pragma: no cover
     UNavConfig = None  # type: ignore
     FacilityNavigator = None  # type: ignore
 
-# Broad language list (ISO 639-1 / BCP47) for the target dropdown
+# --------------------------- constants ---------------------------
+
+DEFAULT_EN = "en"
+LABELS_REL = "_i18n/labels.json"
+
+# Broad language list (ISO 639-1 / BCP47) for the target dropdown in UI
 LANG_AUTONYMS: Dict[str, str] = {
     "en": "English",
     "zh": "中文", "zh-Hans": "简体中文", "zh-Hant": "繁體中文",
@@ -62,14 +82,14 @@ LANG_AUTONYMS: Dict[str, str] = {
     "xh": "isiXhosa", "yo": "Yorùbá",
 }
 
-DEFAULT_EN = "en"
-LABELS_REL = "_i18n/labels.json"
+# --------------------------- labels I/O (importable) ---------------------------
 
-app = Flask(__name__)
-
-# --------------------------- labels I/O ---------------------------
-
-def load_labels(root: Path) -> Dict[str, Any]:
+def load_labels(root: Path | str) -> Dict[str, Any]:
+    """
+    Load labels JSON from <root>/_i18n/labels.json.
+    Ensures all sections exist; auto-creates file if missing.
+    """
+    root = Path(root)
     p = root / LABELS_REL
     if p.exists():
         try:
@@ -88,21 +108,28 @@ def load_labels(root: Path) -> Dict[str, Any]:
     save_labels(root, data)  # ensure file exists
     return data
 
-def save_labels(root: Path, data: Dict[str, Any]) -> None:
+
+def save_labels(root: Path | str, data: Dict[str, Any]) -> None:
+    """Save labels JSON to <root>/_i18n/labels.json with UTF-8 (no ASCII escaping)."""
+    root = Path(root)
     p = root / LABELS_REL
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-# --------------------------- structure derivation ---------------------------
+
+# --------------------------- structure derivation (importable) ---------------------------
 
 def has_nav_assets(root: Path, place: str, building: str, floor: str) -> bool:
-    """Minimal requirement for nav to load a floor (PathFinder needs boundaries.json)."""
+    """
+    Minimal requirement for nav to load a floor (PathFinder needs boundaries.json).
+    """
     return (root / place / building / floor / "boundaries.json").exists()
+
 
 def scan_floors_from_disk(root: Path) -> Dict[str, Dict[str, List[str]]]:
     """
     Build places mapping by scanning:
-    - Any floor that has boundaries.json (for nav)
+    - Any floor that has boundaries.json (for nav-capable floors)
     - Or any floor that has destinations.json (for file fallback)
     Result: place -> building -> [floors]
     """
@@ -127,6 +154,7 @@ def scan_floors_from_disk(root: Path) -> Dict[str, Dict[str, List[str]]]:
         for b in bmap:
             bmap[b].sort()
     return places
+
 
 def derive_from_nav(root: Path) -> Tuple[Dict[str, Dict[str, List[str]]],
                                          Dict[str, Dict[str, Dict[str, List[Tuple[str, str]]]]]]:
@@ -176,6 +204,7 @@ def derive_from_nav(root: Path) -> Tuple[Dict[str, Dict[str, List[str]]],
             rows.append((did_str, fallback))
     return places, dests
 
+
 def derive_from_files(root: Path) -> Tuple[Dict[str, Dict[str, List[str]]],
                                            Dict[str, Dict[str, Dict[str, List[Tuple[str, str]]]]]]:
     """
@@ -207,12 +236,17 @@ def derive_from_files(root: Path) -> Tuple[Dict[str, Dict[str, List[str]]],
                 dests.setdefault(place, {}).setdefault(building, {})[floor] = rows
     return places, dests
 
-def build_tree(root: Path, use_nav: bool) -> Tuple[Dict[str, Dict[str, List[str]]],
-                                                   Dict[str, Dict[str, Dict[str, List[Tuple[str, str]]]]],
-                                                   bool]:
+
+def build_tree(root: Path | str, use_nav: bool) -> Tuple[
+    Dict[str, Dict[str, List[str]]],
+    Dict[str, Dict[str, Dict[str, List[Tuple[str, str]]]]],
+    bool
+]:
     """
-    Returns (places, dests, used_nav)
+    Importable API:
+    Returns (places, dests, used_nav) for a given data root.
     """
+    root = Path(root)
     if use_nav:
         try:
             places, dests = derive_from_nav(root)
@@ -224,94 +258,190 @@ def build_tree(root: Path, use_nav: bool) -> Tuple[Dict[str, Dict[str, List[str]
     places, dests = derive_from_files(root)
     return places, dests, False
 
-# --------------------------- runtime config ---------------------------
 
-DATA_ROOT: Path
-USE_NAV: bool
+# --------------------------- i18n helper (importable) ---------------------------
 
-# --------------------------- API ---------------------------
-
-@app.get("/api/meta")
-def api_meta() -> Response:
-    langs = [{"code": c, "name": LANG_AUTONYMS.get(c, c)} for c in LANG_AUTONYMS.keys()]
-    return jsonify({
-        "data_root": str(DATA_ROOT),
-        "use_nav_requested": USE_NAV,
-        "default_en": DEFAULT_EN,
-        "langs": langs,
-    })
-
-@app.get("/api/tree")
-def api_tree() -> Response:
-    places, dests, used_nav = build_tree(DATA_ROOT, USE_NAV)
-    return jsonify({"places": places, "dests": dests, "used_nav": used_nav})
-
-@app.get("/api/labels")
-def api_labels_get() -> Response:
-    return jsonify(load_labels(DATA_ROOT))
-
-@app.post("/api/labels")
-def api_labels_set() -> Response:
+class UNavI18n:
     """
-    Body:
-    {
-      "section": "places|buildings|floors|destinations",
-      "key": "New_York_City/LightHouse/6_floor/07993",
-      "labels": {"en": "...", "<target>": "..."}
-    }
+    Read-only helper to resolve localized labels and aliases for UNav entities.
+    It reads <DATA_FINAL_ROOT>/_i18n/labels.json produced by the web editor.
+
+    Usage:
+        i18n = UNavI18n("/mnt/data/UNav-IO/data")
+        txt = i18n.get_destination_label(p,b,f,d,"zh-Hant","fallback")
     """
-    payload = request.get_json(force=True)
-    section = str(payload.get("section", ""))
-    key = str(payload.get("key", ""))
-    labels = payload.get("labels", {})
-    if section not in ("places","buildings","floors","destinations"):
-        return jsonify({"error": "Invalid section"}), 400
-    if not key or not isinstance(labels, dict):
-        return jsonify({"error": "Invalid key/labels"}), 400
 
-    data = load_labels(DATA_ROOT)
-    entry = data.setdefault(section, {}).setdefault(key, {})
-    for lang, text in labels.items():
-        text = (text or "").strip()
-        if text:
-            entry[lang] = text
-        elif lang in entry:
-            del entry[lang]
-    save_labels(DATA_ROOT, data)
-    return jsonify({"ok": True})
+    def __init__(self, data_final_root: str | Path):
+        self.root = Path(data_final_root)
+        self.labels_path = self.root / LABELS_REL
+        self.data: Dict[str, Any] = {
+            "places": {}, "buildings": {}, "floors": {}, "destinations": {}, "aliases": {}
+        }
+        self._load()
 
-@app.get("/api/aliases")
-def api_aliases_get() -> Response:
-    lang = (request.args.get("lang") or DEFAULT_EN).strip()
-    data = load_labels(DATA_ROOT)
-    aliases = (data.get("aliases", {}) or {}).get(lang, {})
-    return jsonify(aliases if isinstance(aliases, dict) else {})
+    def _load(self) -> None:
+        self.data = load_labels(self.root)
 
-@app.post("/api/aliases")
-def api_aliases_set() -> Response:
+    @staticmethod
+    def _fallback(entry: Dict[str, str], lang: str, fallback_text: str) -> str:
+        """
+        Language fallback chain: lang -> 'en' -> fallback_text.
+        """
+        if not isinstance(entry, dict):
+            return fallback_text
+        txt = entry.get(lang)
+        if isinstance(txt, str) and txt.strip():
+            return txt.strip()
+        txt = entry.get("en")
+        if isinstance(txt, str) and txt.strip():
+            return txt.strip()
+        return fallback_text
+
+    # ---------- label getters ----------
+    def get_place_label(self, place_id: str, lang: str, fallback_text: Optional[str] = None) -> str:
+        entry = self.data["places"].get(place_id, {})
+        return self._fallback(entry, lang, fallback_text or place_id)
+
+    def get_building_label(self, place_id: str, building_id: str, lang: str, fallback_text: Optional[str] = None) -> str:
+        key = f"{place_id}/{building_id}"
+        entry = self.data["buildings"].get(key, {})
+        return self._fallback(entry, lang, fallback_text or building_id)
+
+    def get_floor_label(self, place_id: str, building_id: str, floor_id: str, lang: str, fallback_text: Optional[str] = None) -> str:
+        key = f"{place_id}/{building_id}/{floor_id}"
+        entry = self.data["floors"].get(key, {})
+        return self._fallback(entry, lang, fallback_text or floor_id)
+
+    def get_destination_label(self, place_id: str, building_id: str, floor_id: str,
+                              dest_id: str, lang: str, fallback_text: Optional[str] = None) -> str:
+        key = f"{place_id}/{building_id}/{floor_id}/{dest_id}"
+        entry = self.data["destinations"].get(key, {})
+        return self._fallback(entry, lang, fallback_text or dest_id)
+
+    # ---------- alias resolver ----------
+    def resolve_alias(self, text: str, lang: str) -> Optional[str]:
+        """
+        Resolve an alias to its canonical ID in a given language.
+        Returns canonical string like:
+          - "Place"
+          - "Place/Building"
+          - "Place/Building/Floor"
+          - "Place/Building/Floor/DestId"
+        or None if not found.
+        """
+        amap = self.data.get("aliases", {}).get(lang, {})
+        if not isinstance(amap, dict):
+            return None
+        return amap.get(text.strip()) if isinstance(text, str) else None
+
+
+# --------------------------- Flask Web App ---------------------------
+
+def create_app(data_root: Path | str, use_nav: bool) -> Flask:
     """
-    Body:
-    { "lang": "zh-Hant", "alias": "光明中心", "canonical": "New_York_City/LightHouse/6_floor or .../destId", "delete": false }
+    App factory: creates a Flask app bound to a specific data root and mode.
     """
-    payload = request.get_json(force=True)
-    lang = (payload.get("lang") or "").strip()
-    alias = (payload.get("alias") or "").strip()
-    canonical = (payload.get("canonical") or "").strip()
-    to_delete = bool(payload.get("delete", False))
-    if not lang or not alias:
-        return jsonify({"error": "lang and alias required"}), 400
+    data_root = Path(data_root).resolve()
+    app = Flask(__name__)
+    app.config["DATA_ROOT"] = data_root
+    app.config["USE_NAV"] = bool(use_nav)
 
-    data = load_labels(DATA_ROOT)
-    amap = data.setdefault("aliases", {}).setdefault(lang, {})
-    if to_delete:
-        if alias in amap:
-            del amap[alias]
-    else:
-        if not canonical:
-            return jsonify({"error": "canonical required when not deleting"}), 400
-        amap[alias] = canonical
-    save_labels(DATA_ROOT, data)
-    return jsonify({"ok": True})
+    @app.get("/api/meta")
+    def api_meta() -> Response:
+        langs = [{"code": c, "name": LANG_AUTONYMS.get(c, c)} for c in LANG_AUTONYMS.keys()]
+        return jsonify({
+            "data_root": str(app.config["DATA_ROOT"]),
+            "use_nav_requested": app.config["USE_NAV"],
+            "default_en": DEFAULT_EN,
+            "langs": langs,
+        })
+
+    @app.get("/api/tree")
+    def api_tree() -> Response:
+        places, dests, used_nav = build_tree(app.config["DATA_ROOT"], app.config["USE_NAV"])
+        return jsonify({"places": places, "dests": dests, "used_nav": used_nav})
+
+    @app.get("/api/labels")
+    def api_labels_get() -> Response:
+        return jsonify(load_labels(app.config["DATA_ROOT"]))
+
+    @app.post("/api/labels")
+    def api_labels_set() -> Response:
+        """
+        Body:
+        {
+          "section": "places|buildings|floors|destinations",
+          "key": "New_York_City/LightHouse/6_floor/07993",
+          "labels": {"en": "...", "<target>": "..."}
+        }
+        """
+        payload = request.get_json(force=True)
+        section = str(payload.get("section", ""))
+        key = str(payload.get("key", ""))
+        labels = payload.get("labels", {})
+        if section not in ("places", "buildings", "floors", "destinations"):
+            return jsonify({"error": "Invalid section"}), 400
+        if not key or not isinstance(labels, dict):
+            return jsonify({"error": "Invalid key/labels"}), 400
+
+        data = load_labels(app.config["DATA_ROOT"])
+        entry = data.setdefault(section, {}).setdefault(key, {})
+        for lang, text in labels.items():
+            text = (text or "").strip()
+            if text:
+                entry[lang] = text
+            elif lang in entry:
+                del entry[lang]
+        save_labels(app.config["DATA_ROOT"], data)
+        return jsonify({"ok": True})
+
+    @app.get("/api/aliases")
+    def api_aliases_get() -> Response:
+        lang = (request.args.get("lang") or DEFAULT_EN).strip()
+        data = load_labels(app.config["DATA_ROOT"])
+        aliases = (data.get("aliases", {}) or {}).get(lang, {})
+        return jsonify(aliases if isinstance(aliases, dict) else {})
+
+    @app.post("/api/aliases")
+    def api_aliases_set() -> Response:
+        """
+        Body:
+        { "lang": "zh-Hant", "alias": "光明中心", "canonical": "Place/Bld/Floor or .../DestId", "delete": false }
+        """
+        payload = request.get_json(force=True)
+        lang = (payload.get("lang") or "").strip()
+        alias = (payload.get("alias") or "").strip()
+        canonical = (payload.get("canonical") or "").strip()
+        to_delete = bool(payload.get("delete", False))
+        if not lang or not alias:
+            return jsonify({"error": "lang and alias required"}), 400
+
+        data = load_labels(app.config["DATA_ROOT"])
+        amap = data.setdefault("aliases", {}).setdefault(lang, {})
+        if to_delete:
+            if alias in amap:
+                del amap[alias]
+        else:
+            if not canonical:
+                return jsonify({"error": "canonical required when not deleting"}), 400
+            amap[alias] = canonical
+        save_labels(app.config["DATA_ROOT"], data)
+        return jsonify({"ok": True})
+
+    @app.get("/")
+    def index() -> Response:
+        return Response(INDEX_HTML, mimetype="text/html; charset=utf-8")
+
+    return app
+
+
+def run_server(data_root: str | Path, use_nav: bool, host: str = "127.0.0.1", port: int = 5009, debug: bool = False) -> None:
+    """
+    Helper to run the web editor from Python code.
+    """
+    app = create_app(data_root, use_nav)
+    app.run(host=host, port=port, debug=debug)
+
 
 # --------------------------- UI (single HTML) ---------------------------
 
@@ -617,12 +747,7 @@ boot();
 </html>
 """
 
-
-@app.get("/")
-def index() -> Response:
-    return Response(INDEX_HTML, mimetype="text/html; charset=utf-8")
-
-# --------------------------- CLI ---------------------------
+# --------------------------- CLI entry ---------------------------
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="UNav i18n web label editor (auto-derived)")
@@ -630,17 +755,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--use-nav", action="store_true", help="Prefer FacilityNavigator for destinations")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=5009)
+    p.add_argument("--debug", action="store_true")
     return p.parse_args()
 
+
 def main() -> int:
-    global DATA_ROOT, USE_NAV
     ns = parse_args()
-    DATA_ROOT = Path(ns.data_final_root).resolve()
-    USE_NAV = bool(ns.use_nav)
     # Ensure labels.json exists
-    load_labels(DATA_ROOT)
-    app.run(host=ns.host, port=ns.port, debug=False)
+    load_labels(Path(ns.data_final_root))
+    run_server(ns.data_final_root, ns.use_nav, host=ns.host, port=ns.port, debug=ns.debug)
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
