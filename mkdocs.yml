@@ -1,0 +1,29 @@
+site_name: UNav Self-Serve Mapping
+site_description: External partner documentation for UNav map onboarding
+repo_url: https://github.com/ai4ce/unav
+site_url: https://ai4ce.github.io/unav/
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+plugins:
+  - search
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - tables
+  - attr_list
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Data Collection SOP: data-collection-sop.md
+  - Input Output Contract: io-contract.md
+  - Mapping Workflow: mapping-workflow.md
+  - Floorplan Alignment: aligner.md
+  - Map Labeling & Multi-language: map-labeling-multilang.md
+  - Troubleshooting: troubleshooting.md
+  - Publish Docs Site: publish-docs-site.md
