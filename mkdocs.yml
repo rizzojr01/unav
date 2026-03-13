@@ -1,7 +1,7 @@
 site_name: UNav Self-Serve Mapping
 site_description: External partner documentation for UNav map onboarding
-repo_url: https://github.com/ai4ce/unav
-site_url: https://ai4ce.github.io/unav/
+repo_url: https://github.com/endeleze/UNav
+site_url: https://endeleze.github.io/UNav/
 theme:
   name: material
   features:
