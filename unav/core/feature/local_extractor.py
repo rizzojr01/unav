@@ -223,14 +223,16 @@ class MASt3RExtractor:
             conf_out = conf_scores[top_idx]
 
             # Scale to original resolution
-            db_img = Image.open(db_img_path)
-            db_w, db_h = db_img.size
-            m_h, m_w = desc1.shape[0], desc1.shape[1]
+            # Use cv2 to get actual pixel dimensions (ignoring EXIF rotation)
+            import cv2 as _cv2
+            _db_img = _cv2.imread(db_img_path)
+            db_h, db_w = _db_img.shape[:2]  # cv2: (H, W, C)
+            m_h, m_w = desc1.shape[0], desc1.shape[1]  # desc: (H, W, D)
             m_db[:, 0] *= db_w / m_w
             m_db[:, 1] *= db_h / m_h
 
-            q_img = Image.open(query_img_path)
-            q_w, q_h = q_img.size
+            _q_img = _cv2.imread(query_img_path)
+            q_h, q_w = _q_img.shape[:2]
             mq_h, mq_w = desc2.shape[0], desc2.shape[1]
             m_query[:, 0] *= q_w / mq_w
             m_query[:, 1] *= q_h / mq_h
