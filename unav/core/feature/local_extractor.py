@@ -138,3 +138,105 @@ class Local_extractor:
                 # TODO: Implement SURF matcher if needed
                 pass
         raise ValueError("No supported matcher config found.")
+
+
+# ═══════════════════════════════════════════════════════════
+# MASt3R Dense Matcher
+# ═══════════════════════════════════════════════════════════
+import sys
+import numpy as np
+from PIL import Image
+
+class MASt3RExtractor:
+    """
+    Dense matcher using MASt3R (ECCV 2024).
+    Replaces SuperPoint+LightGlue for textureless environments.
+    """
+
+    def __init__(self, config, device='cuda'):
+        self.config = config
+        self.device = device
+        self.model = None
+        self._load_model()
+
+    def _load_model(self):
+        sys.path.insert(0, '/home/unav/Desktop/mast3r')
+        from mast3r.model import AsymmetricMASt3R
+        self.model = AsymmetricMASt3R.from_pretrained(
+            self.config.get("model_name", "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric")
+        ).to(self.device)
+        self.model.eval()
+        print(f"[MASt3R] Loaded on {self.device}")
+
+    def match_pair(self, query_img_path, db_img_path):
+        """
+        Run MASt3R on a (query, DB) image pair.
+
+        Returns:
+            query_2d: (N, 2) matched pixel coords in query (at original resolution)
+            db_2d: (N, 2) matched pixel coords in DB (at original resolution)
+            confidence: (N,) confidence scores
+            Or (None, None, None) on failure.
+        """
+        import torch
+        sys.path.insert(0, '/home/unav/Desktop/mast3r')
+        from mast3r.fast_nn import fast_reciprocal_NNs
+        from dust3r.inference import inference
+        from dust3r.utils.image import load_images
+
+        mast3r_size = self.config.get("mast3r_size", 512)
+        max_matches = self.config.get("max_matches", 2000)
+        subsample = self.config.get("subsample", 8)
+
+        try:
+            images = load_images([db_img_path, query_img_path], size=mast3r_size)
+            with torch.no_grad():
+                output = inference([tuple(images)], self.model, self.device,
+                                   batch_size=1, verbose=False)
+
+            desc1 = output['pred1']['desc'].squeeze(0).detach()
+            desc2 = output['pred2']['desc'].squeeze(0).detach()
+            conf1 = output['pred1']['conf'].squeeze(0).detach().cpu().numpy()
+            conf2 = output['pred2']['conf'].squeeze(0).detach().cpu().numpy()
+
+            matches_db, matches_query = fast_reciprocal_NNs(
+                desc1, desc2, subsample_or_initxy1=subsample,
+                device=self.device, dist='dot', block_size=2**13
+            )
+
+            if len(matches_db) < 6:
+                return None, None, None
+
+            # Confidence filter
+            c1 = conf1[matches_db[:, 1].astype(int), matches_db[:, 0].astype(int)]
+            c2 = conf2[matches_query[:, 1].astype(int), matches_query[:, 0].astype(int)]
+            conf_scores = c1 * c2
+            top_k = min(max_matches, len(conf_scores))
+            top_idx = np.argsort(conf_scores)[-top_k:]
+
+            m_db = matches_db[top_idx].astype(np.float64)
+            m_query = matches_query[top_idx].astype(np.float64)
+            conf_out = conf_scores[top_idx]
+
+            # Scale to original resolution
+            db_img = Image.open(db_img_path)
+            db_w, db_h = db_img.size
+            m_h, m_w = desc1.shape[0], desc1.shape[1]
+            m_db[:, 0] *= db_w / m_w
+            m_db[:, 1] *= db_h / m_h
+
+            q_img = Image.open(query_img_path)
+            q_w, q_h = q_img.size
+            mq_h, mq_w = desc2.shape[0], desc2.shape[1]
+            m_query[:, 0] *= q_w / mq_w
+            m_query[:, 1] *= q_h / mq_h
+
+            return m_query, m_db, conf_out
+
+        except Exception as e:
+            print(f"[MASt3R] match_pair error: {e}")
+            return None, None, None
+
+    def dummy_extract(self, image):
+        """No-op local feature extraction (MASt3R does joint matching)."""
+        return None

@@ -143,3 +143,102 @@ def batch_local_matching_and_ransac(
         "object_points": pnp_object_points
     }
     return best_map_key, pnp_pairs, block["results"]
+
+
+def mast3r_matching_and_pnp(
+    query_img_path: str,
+    candidates_data,
+    mast3r_matcher,
+    colmap_models,
+    max_nn_dist: float = 20.0,
+    min_inliers: int = 6,
+    max_candidates: int = 10,
+):
+    """
+    MASt3R dense matching replacement for batch_local_matching_and_ransac().
+
+    For each candidate:
+      1. MASt3R dense match (query, DB image) → (query_2d, db_2d)
+      2. NN lookup: db_2d → colmap points2D_xy → world points3D_xyz
+      3. Collect (image_points, object_points) for PnP
+
+    Returns same signature as batch_local_matching_and_ransac():
+      (best_map_key, pnp_pairs, results)
+    """
+    from scipy.spatial import cKDTree
+    import os
+
+    ref_img_names = list(candidates_data.keys())[:max_candidates]
+    grouped = {}
+
+    for name in ref_img_names:
+        candidate = candidates_data[name]
+        map_key = candidate["map_key"]
+        ref_frame = candidate["frame"]
+
+        # Find DB image path
+        place, building, floor = map_key
+        db_img_path = f'/mnt/data/UNav-IO/temp/{place}/{building}/{floor}/perspectives/{name}'
+        if not os.path.exists(db_img_path):
+            continue
+
+        # Run MASt3R matching
+        query_2d, db_2d, conf = mast3r_matcher.match_pair(query_img_path, db_img_path)
+        if query_2d is None or len(query_2d) < min_inliers:
+            continue
+
+        # Colmap 3D lookup via NN
+        colmap_2d = ref_frame['points2D_xy']
+        colmap_3d = ref_frame['points3D_xyz']
+        valid_mask = np.array([p is not None for p in colmap_3d])
+        valid_idx = np.where(valid_mask)[0]
+
+        if len(valid_idx) < min_inliers:
+            continue
+
+        valid_2d = colmap_2d[valid_idx]
+        valid_3d = np.array([colmap_3d[i] for i in valid_idx])
+
+        tree = cKDTree(valid_2d)
+        dists, nn_idx = tree.query(db_2d, k=1)
+        close_mask = dists < max_nn_dist
+
+        if close_mask.sum() < min_inliers:
+            continue
+
+        image_points = query_2d[close_mask]
+        object_points = valid_3d[nn_idx[close_mask]]
+        n_inliers = len(image_points)
+
+        if map_key not in grouped:
+            grouped[map_key] = {
+                "all_image_points": [],
+                "all_object_points": [],
+                "results": [],
+                "total_inliers": 0,
+            }
+        grouped[map_key]["all_image_points"].append(image_points)
+        grouped[map_key]["all_object_points"].append(object_points)
+        grouped[map_key]["total_inliers"] += n_inliers
+        grouped[map_key]["results"].append({
+            "ref_image_name": name,
+            "map_key": map_key,
+            "score": candidate.get("score", 0),
+            "inliers": n_inliers,
+            "object_points": object_points,
+            "image_points": image_points,
+        })
+
+    if not grouped:
+        return None, {"image_points": np.zeros((0, 2)), "object_points": np.zeros((0, 3))}, []
+
+    best_map_key = max(grouped, key=lambda k: grouped[k]["total_inliers"])
+    block = grouped[best_map_key]
+
+    pnp_image_points = np.concatenate(block["all_image_points"], axis=0)
+    pnp_object_points = np.concatenate(block["all_object_points"], axis=0)
+
+    return best_map_key, {
+        "image_points": pnp_image_points,
+        "object_points": pnp_object_points,
+    }, block["results"]

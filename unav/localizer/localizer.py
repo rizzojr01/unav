@@ -17,6 +17,7 @@ from unav.localizer.tools.retriever import (
     fetch_candidates_data
 )
 from unav.localizer.tools.matcher import batch_local_matching_and_ransac
+from unav.localizer.tools.matcher import mast3r_matching_and_pnp
 from unav.localizer.tools.pnp import (
     refine_pose_from_queue,
     transform_pose_to_floorplan,
@@ -58,13 +59,19 @@ class UNavLocalizer:
         Initialize local and global feature extraction models (but not map/features).
         """
         feat_cfg = self.config.feature_extraction_config
+        self.use_mast3r = self.config.local_feature_model == "mast3r"
         print(
             f"[INFO] Initializing models: "
             f"Local -> {self.config.local_feature_model} | "
             f"Global -> {self.config.global_descriptor_model}"
         )
-        self.local_extractor = Local_extractor(feat_cfg["local_extractor_config"]).extractor()
-        self.local_matcher = Local_extractor(feat_cfg["local_extractor_config"]).matcher().to(self.device)
+        local_ext = Local_extractor(feat_cfg["local_extractor_config"])
+        self.local_extractor = local_ext.extractor()
+        matcher = local_ext.matcher()
+        if self.use_mast3r:
+            self.local_matcher = matcher  # MASt3RExtractor instance (already on device)
+        else:
+            self.local_matcher = matcher.to(self.device)
         self.global_extractor = GlobalExtractors(
             feat_cfg["parameters_root"],
             {self.config.global_descriptor_model: feat_cfg["global_descriptor_config"]},
@@ -169,27 +176,42 @@ class UNavLocalizer:
             load_local_features
         )
 
-    def batch_local_matching_and_ransac(self, local_feat_dict, candidates_data):
+    def batch_local_matching_and_ransac(self, local_feat_dict, candidates_data,
+                                        query_img_path=None):
         """
         Perform local matching and geometric verification in batch.
+        Dispatches to MASt3R or SuperPoint+LightGlue based on config.
 
         Args:
-            local_feat_dict: Query local features dict.
+            local_feat_dict: Query local features dict (None for MASt3R).
             candidates_data: Dict of reference image data.
+            query_img_path: Path to query image (required for MASt3R).
 
         Returns:
             best_map_key (str): Map region with most inliers.
             pnp_pairs (dict): All correspondences for pose estimation.
             results (list): Per-candidate match info.
         """
-        return batch_local_matching_and_ransac(
-            local_feat_dict,
-            candidates_data,
-            matcher=self.local_matcher,
-            feature_score_threshold=self.config.localization_config.get("feature_score_threshold", 0.09),
-            min_inliers=self.config.localization_config.get("min_inliers", 50),
-            device=self.device
-        )
+        if self.use_mast3r:
+            mast3r_cfg = self.config.feature_extraction_config["local_extractor_config"].get("mast3r", {})
+            return mast3r_matching_and_pnp(
+                query_img_path=query_img_path,
+                candidates_data=candidates_data,
+                mast3r_matcher=self.local_matcher,
+                colmap_models=self.all_colmap_models,
+                max_nn_dist=mast3r_cfg.get("max_nn_dist", 20.0),
+                min_inliers=self.config.localization_config.get("min_inliers", 6),
+                max_candidates=10,
+            )
+        else:
+            return batch_local_matching_and_ransac(
+                local_feat_dict,
+                candidates_data,
+                matcher=self.local_matcher,
+                feature_score_threshold=self.config.localization_config.get("feature_score_threshold", 0.09),
+                min_inliers=self.config.localization_config.get("min_inliers", 50),
+                device=self.device
+            )
 
     def multi_frame_pose_refine(self, pnp_pairs, img_shape, refinement_queue):
         """
@@ -311,7 +333,10 @@ class UNavLocalizer:
 
         # 4. Local matching + RANSAC, grouped by region/map_key
         try:
-            best_map_key, pnp_pairs, results = self.batch_local_matching_and_ransac(local_feat_dict, candidates_data)
+            best_map_key, pnp_pairs, results = self.batch_local_matching_and_ransac(
+                local_feat_dict, candidates_data,
+                query_img_path=kwargs.get("query_img_path", None)
+            )
         except Exception as e:
             return {
                 "success": False,

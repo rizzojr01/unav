@@ -153,6 +153,13 @@ class UNavMappingConfig:
                 "width_confidence": -1,
                 "depth_confidence": -1
             }
+        },
+        "mast3r": {
+            "model_name": "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric",
+            "mast3r_size": 512,
+            "max_nn_dist": 20.0,
+            "max_matches": 2000,
+            "subsample": 8,
         }
     }
 
@@ -485,6 +492,13 @@ class UNavLocalizationConfig:
                 "width_confidence": -1,
                 "depth_confidence": -1
             }
+        },
+        "mast3r": {
+            "model_name": "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric",
+            "mast3r_size": 512,
+            "max_nn_dist": 20.0,
+            "max_matches": 2000,
+            "subsample": 8,
         }
     }
     def __init__(
@@ -532,6 +546,100 @@ class UNavLocalizationConfig:
             "feature_extraction_config": self.feature_extraction_config,
             "localization_config": self.localization_config,
         }
+
+# -------------------------------- Floor Map Config --------------------------------
+
+class UNavFloorMapConfig:
+    """
+    Configuration class for the Floor Map Generation pipeline.
+    Generates floor point cloud and 2D floor map from equirectangular keyframes using DA3 + SAM3.
+    """
+
+    def __init__(
+        self,
+        data_temp_root: str = "/mnt/data/UNav-IO/temp",
+        data_final_root: str = "/mnt/data/UNav-IO/final",
+        place: str = "New_York_City",
+        building: str = "LightHouse",
+        floor: str = "3_floor",
+        num_images: int = 10,
+        yaw_angles: List[int] = None,
+        pitch_angles: List[int] = None,
+        fov: float = 90.0,
+        conf_thresh: float = 0.5,
+        resolution: float = 0.02,
+    ) -> None:
+        """
+        Initialize the Floor Depth Analyzer config.
+
+        Args:
+            data_temp_root: Root directory for temporary data
+            data_final_root: Root directory for final output
+            place: Place name
+            building: Building name
+            floor: Floor name
+            num_images: Number of keyframes to process
+            yaw_angles: List of yaw angles for slicing (default: 8 directions)
+            pitch_angles: List of pitch angles for slicing (default: [0, -20])
+            fov: Field of view for perspective slices
+            conf_thresh: Depth confidence threshold
+            resolution: Floor map resolution (m/pixel)
+        """
+        self.data_temp_root = data_temp_root
+        self.data_final_root = data_final_root
+        self.place = place
+        self.building = building
+        self.floor = floor
+
+        # Processing parameters
+        self.num_images = num_images
+        self.yaw_angles = yaw_angles or [0, 45, 90, 135, 180, 225, 270, 315]
+        self.pitch_angles = pitch_angles or [0, -20]
+        self.fov = fov
+        self.conf_thresh = conf_thresh
+        self.resolution = resolution
+
+        # Derived paths
+        self.data_temp_dir = os.path.join(data_temp_root, place, building, floor)
+        self.data_final_dir = os.path.join(data_final_root, place, building, floor)
+
+        # Input paths (from SLAM output)
+        self.keyframe_dir = os.path.join(
+            self.data_temp_dir, "stella_vslam_dense", "keyframes"
+        )
+        self.trajectory_file = os.path.join(
+            self.data_temp_dir, "stella_vslam_dense", "eval_logs", "keyframe_trajectory.txt"
+        )
+
+        # Output paths
+        self.output_dir = os.path.join(self.data_temp_dir, "floor_map")
+        self.floor_pointcloud_glb = os.path.join(self.output_dir, "floor_pointcloud.glb")
+        self.floor_points_npy = os.path.join(self.output_dir, "floor_points.npy")
+        self.floor_map_dir = os.path.join(self.output_dir, "floor_map")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Export config as a dictionary."""
+        return {
+            "data_temp_root": self.data_temp_root,
+            "data_final_root": self.data_final_root,
+            "place": self.place,
+            "building": self.building,
+            "floor": self.floor,
+            "num_images": self.num_images,
+            "yaw_angles": self.yaw_angles,
+            "pitch_angles": self.pitch_angles,
+            "fov": self.fov,
+            "conf_thresh": self.conf_thresh,
+            "resolution": self.resolution,
+            "keyframe_dir": self.keyframe_dir,
+            "trajectory_file": self.trajectory_file,
+            "output_dir": self.output_dir,
+        }
+
+    def __repr__(self) -> str:
+        return (f"<UNavFloorMapConfig {self.place}/{self.building}/{self.floor} "
+                f"num_images={self.num_images}>")
+
 
 # -------------------------------- Navigation Config --------------------------------
 
