@@ -105,6 +105,8 @@ class Local_extractor:
             Callable: Function that takes an image and returns extracted features.
         """
         for name, content in self.configs.items():
+            if name == "mast3r":
+                return None  # MASt3R does joint extraction+matching
             if name == "superpoint+superglue":
                 superpoint = Superpoint(self.device, self.configs["superpoint+superglue"])
                 return superpoint.extract_local_features
@@ -127,6 +129,8 @@ class Local_extractor:
             Callable: Matcher model.
         """
         for name, content in self.configs.items():
+            if name == "mast3r":
+                return MASt3RExtractor(content, device=self.device)
             if name == "superpoint+superglue":
                 return self.superglue(self.configs["superpoint+superglue"])
             elif name == "superpoint+lightglue":
