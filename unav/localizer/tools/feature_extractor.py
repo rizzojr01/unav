@@ -38,7 +38,10 @@ def extract_query_features(
     global_feat = normalize(global_feat, dim=-1).squeeze(0).detach().cpu().numpy()
 
     # --- Local feature extraction ---
-    # Expect local_extractor to take np.ndarray (RGB, H, W, 3) and return dict
-    local_feat_dict = local_extractor(query_img)
+    # MASt3R mode: local_extractor is None (joint extraction+matching done later)
+    if local_extractor is not None:
+        local_feat_dict = local_extractor(query_img)
+    else:
+        local_feat_dict = None
 
     return global_feat, local_feat_dict
