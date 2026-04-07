@@ -201,8 +201,8 @@ class UNavLocalizer:
                 colmap_models=self.all_colmap_models,
                 max_nn_dist=mast3r_cfg.get("max_nn_dist", 20.0),
                 min_inliers=self.config.localization_config.get("min_inliers", 6),
-                max_candidates=10,
-                early_stop_inliers=50,
+                max_candidates=5,
+                early_stop_inliers=30,
             )
         else:
             return batch_local_matching_and_ransac(

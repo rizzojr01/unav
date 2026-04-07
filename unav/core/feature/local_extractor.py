@@ -173,8 +173,6 @@ class MASt3RExtractor:
         ).to(self.device)
         self.model.eval()
         # torch.compile disabled (CUDA graph conflict with MASt3R position cache)
-        try:
-            import torch
         print(f"[MASt3R] Loaded on {self.device}")
 
     def match_pair(self, query_img_path, db_img_path):

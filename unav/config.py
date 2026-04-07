@@ -158,8 +158,8 @@ class UNavMappingConfig:
             "model_name": "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric",
             "mast3r_size": 512,
             "max_nn_dist": 20.0,
-            "max_matches": 2000,
-            "subsample": 8,
+            "max_matches": 500,
+            "subsample": 16,
         }
     }
 
@@ -497,8 +497,8 @@ class UNavLocalizationConfig:
             "model_name": "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric",
             "mast3r_size": 512,
             "max_nn_dist": 20.0,
-            "max_matches": 2000,
-            "subsample": 8,
+            "max_matches": 500,
+            "subsample": 16,
         }
     }
     def __init__(
