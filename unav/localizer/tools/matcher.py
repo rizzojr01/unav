@@ -153,6 +153,7 @@ def mast3r_matching_and_pnp(
     max_nn_dist: float = 20.0,
     min_inliers: int = 6,
     max_candidates: int = 10,
+    early_stop_inliers: int = 50,
 ):
     """
     MASt3R dense matching replacement for batch_local_matching_and_ransac().
@@ -228,6 +229,10 @@ def mast3r_matching_and_pnp(
             "object_points": object_points,
             "image_points": image_points,
         })
+
+        # Early stopping: if we have enough inliers, stop matching more candidates
+        if grouped[map_key]["total_inliers"] >= early_stop_inliers:
+            break
 
     if not grouped:
         return None, {"image_points": np.zeros((0, 2)), "object_points": np.zeros((0, 3))}, []

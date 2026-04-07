@@ -202,6 +202,7 @@ class UNavLocalizer:
                 max_nn_dist=mast3r_cfg.get("max_nn_dist", 20.0),
                 min_inliers=self.config.localization_config.get("min_inliers", 6),
                 max_candidates=10,
+                early_stop_inliers=50,
             )
         else:
             return batch_local_matching_and_ransac(
@@ -286,8 +287,10 @@ class UNavLocalizer:
         t0 = t1
 
         # 2. VPR: retrieve top candidates
+        # MASt3R is slower per-pair, use fewer VPR candidates
+        effective_topk = min(top_k or 50, 10) if self.use_mast3r else top_k
         try:
-            top_candidates = self.vpr_retrieve(global_feat, top_k=top_k)
+            top_candidates = self.vpr_retrieve(global_feat, top_k=effective_topk)
         except Exception as e:
             return {
                 "success": False,
