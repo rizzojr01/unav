@@ -336,10 +336,22 @@ class UNavLocalizer:
 
         # 4. Local matching + RANSAC, grouped by region/map_key
         try:
+            # MASt3R needs image file path — save temp file if not provided
+            query_img_path = kwargs.get("query_img_path", None)
+            if self.use_mast3r and query_img_path is None:
+                import tempfile, cv2
+                _tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+                cv2.imwrite(_tmp.name, query_img)
+                query_img_path = _tmp.name
             best_map_key, pnp_pairs, results = self.batch_local_matching_and_ransac(
                 local_feat_dict, candidates_data,
-                query_img_path=kwargs.get("query_img_path", None)
+                query_img_path=query_img_path
             )
+            # Clean up temp file
+            if self.use_mast3r and 'query_img_path' not in kwargs and query_img_path:
+                import os
+                try: os.unlink(query_img_path)
+                except: pass
         except Exception as e:
             return {
                 "success": False,
