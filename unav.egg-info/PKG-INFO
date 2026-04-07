@@ -1,0 +1,151 @@
+Metadata-Version: 2.4
+Name: unav
+Version: 0.1.0
+Summary: UNav: A Visual Navigation System
+Home-page: https://github.com/ai4ce/unav
+Author: Anbang Yang
+Author-email: ay1620@nyu.edu
+Classifier: Programming Language :: Python :: 3
+Classifier: Operating System :: OS Independent
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: dataloaders>=0.0.1
+Requires-Dist: einops>=0.8.1
+Requires-Dist: faiss-gpu>=1.7.2
+Requires-Dist: fast-pytorch-kmeans>=0.2.0.1
+Requires-Dist: h5py>=3.7.0
+Requires-Dist: joblib>=1.1.1
+Requires-Dist: kornia>=0.6.12
+Requires-Dist: lib>=4.0.0
+Requires-Dist: matplotlib>=3.7.1
+Requires-Dist: networkx>=2.8.4
+Requires-Dist: numpy>=1.22.4
+Requires-Dist: open3d>=0.19.0
+Requires-Dist: opencv-python>=4.10.0.84
+Requires-Dist: Pillow>=10.0.0
+Requires-Dist: poselib>=2.0.0
+Requires-Dist: POT>=0.9.0
+Requires-Dist: prettytable<=3.11.0
+Requires-Dist: pyimplicitdist>=1.0.0
+Requires-Dist: pytorch-lightning>=2.0.6
+Requires-Dist: pytorch-metric-learning>=2.3.0
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: scikit-image>=0.19.2
+Requires-Dist: scikit-learn>=1.2.1
+Requires-Dist: scipy>=1.10.0
+Requires-Dist: Shapely>=2.0.7
+Requires-Dist: timm>=0.4.12
+Requires-Dist: torch>=2.4.0
+Requires-Dist: torchvision>=0.19.0
+Requires-Dist: tqdm>=4.65.0
+Requires-Dist: transformers>=4.45.0
+Requires-Dist: tyro>=0.9.22
+Requires-Dist: wandb>=0.19.11
+Requires-Dist: xformers>=0.0.28
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
+# UNav: Unified Visual Navigation System
+
+UNav is a modular visual navigation framework for indoor mapping, localization, and navigation across multi-floor buildings.
+
+## Install
+
+```sh
+pip install git+https://github.com/ai4ce/unav.git
+```
+
+## Self-Serve Mapping Documentation (External Partner)
+
+If you are onboarding a new building/floor, use the full step-by-step guide:
+
+- [docs/index.md](docs/index.md)
+
+This guide covers:
+
+- Hardware and software prerequisites
+- How to walk a new indoor space with a 360 camera
+- Exact input/output folder contract
+- Mapping and alignment commands
+- Map labeling (`labelme`) and multi-language workflow
+- Required map deliverables and troubleshooting
+
+Preview docs locally:
+
+```sh
+pip install mkdocs mkdocs-material
+mkdocs serve
+```
+
+## Quick Commands
+
+### 1. Mapping Pipeline
+
+Canonical command:
+
+```sh
+python -m unav.run_mapper <data_temp_root> <data_final_root> <feature_model> <place> <building> <floor>
+```
+
+Backward-compatible alias:
+
+```sh
+python -m unav.run_mapping <data_temp_root> <data_final_root> <feature_model> <place> <building> <floor>
+```
+
+Arguments:
+
+- `data_temp_root`: root for raw map input files and intermediate artifacts
+- `data_final_root`: root for final map outputs used by localization/navigation
+- `feature_model`: one of `DinoV2Salad`, `MixVPR`, `CricaVPR`, `NetVlad`, `AnyLoc`
+- `place`, `building`, `floor`: dataset identifiers used in output paths
+
+Example:
+
+```sh
+python -m unav.run_mapper /mnt/data/UNav-IO/temp /mnt/data/UNav-IO/data DinoV2Salad New_York_City LightHouse 4_floor
+```
+
+### 2. Floorplan Alignment (Required)
+
+```sh
+python -m unav.run_aligner <data_temp_root> <data_final_root> <place> <building> <floor>
+```
+
+Required before launching aligner:
+
+- `<data_final_root>/<place>/<building>/<floor>/floorplan.png`
+- `<data_final_root>/scale.json` (meters per pixel)
+
+Output:
+
+- `<data_final_root>/<place>/<building>/<floor>/transform_matrix.npy`
+
+### 3. Map Labeling + Multi-language
+
+Label map with `labelme` and save:
+
+- `<data_final_root>/<place>/<building>/<floor>/boundaries.json`
+
+Run translation GUI:
+
+```sh
+python -m unav.mapper.tools.i18n_label_web --data-final-root <data_final_root> --use-nav --port 5001
+```
+
+## Other Modules
+
+- Mapping module docs: `unav/mapper/README.md`
+- Localization module docs: `unav/localizer/README.md`
+- Navigation module docs: `unav/navigator/README.md`

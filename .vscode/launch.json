@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug test_floor_map.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/unav/tmp/test_floor_map.py",
+            "python": "/usr/bin/python",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        }
+    ]
+}

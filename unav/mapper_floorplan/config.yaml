@@ -1,0 +1,54 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# 全局配置文件 - 所有脚本共享的参数
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# 数据路径配置
+data_root: "/mnt/data/UNav-IO/temp"
+floorplan_root: "/mnt/data/UNav-IO/data"
+
+# 默认位置信息
+default_place: "New_York_University"
+default_building: "Tandon"
+default_floor: "4_floor"
+
+# 目录名称配置
+dir_names:
+  slam: "stella_vslam_dense"
+  keyframes: "keyframes"
+  floor_map: "floor_map"  # 所有floor map相关输出的根目录
+  mask: "masks"
+  door_mask: "door_masks"
+  depth: "depth"  # DA² 深度图目录
+  keyframe_floors: "keyframe_floors"  # 每帧floor points
+  keyframe_vis: "keyframe_vis"  # 每帧可视化
+
+# 文件名配置
+file_names:
+  database: "final_map.msg"
+  output_ply: "floor_points_extracted.ply"
+  output_ply_depth: "floor_points_depth.ply"  # 深度方法输出
+
+# SAM3 参数配置
+sam3:
+  floor_prompt: "floor"
+  door_prompt: "door"
+  device: null  # null 表示自动检测 (cuda/cpu)
+
+# DA² 参数配置
+da2:
+  conda_env: "da2_py312"
+  da2_path: "/home/unav/Desktop/unav/unav/tmp/pano_depth_methods/DA-2"
+  depth_scale: 5.0  # 深度缩放因子
+  depth_pattern: "image{}.npy"  # 深度文件名模式
+
+# 地板点云提取参数
+extraction:
+  # 提取方法: "pointcloud" 或 "depth"
+  method: "depth"
+  mask_pattern: "image{}_floor_mask.png"
+  door_mask_pattern: "image{}_door_mask.png"
+  grid_resolution: 0.05  # 网格分辨率（米）
+  save_views: true
+  save_map: true
+  # 深度方法特有参数
+  depth_subsample: 8  # 深度图降采样因子

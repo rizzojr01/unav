@@ -1,0 +1,175 @@
+[INFO] Pending floors:
+  - New_York_University|Langone|15_floor
+  - New_York_University|Langone|16_floor
+  - New_York_University|Langone|17_floor
+
+[RUN] New_York_University / Langone / 15_floor
+╔════════════════════════════════════════════════════════════════╗
+║          自动化地板点云提取流程                                 ║
+╚════════════════════════════════════════════════════════════════╝
+
+位置:       New_York_University
+建筑:       Langone
+楼层:       15_floor
+方法:       depth
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ 找到 628 个关键帧
+✓ 已存在 628 个掩码文件
+
+跳过掩码生成步骤
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+步骤 2: 使用 DA² 生成深度图
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+注意: DA² 需要 Python 3.12 环境 (da2_py312)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DA² 深度估计 (批处理模式)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+输入目录: /mnt/data/UNav-IO/temp/New_York_University/Langone/15_floor/stella_vslam_dense/keyframes
+输出目录: /mnt/data/UNav-IO/temp/New_York_University/Langone/15_floor/floor_map/depth
+总图片数: 628
+批大小:   100
+
+总批次数: 7
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+处理批次 1 / 7 (图片 1 - 100)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+02/06 10:13:39 --> Version: infer_config (from /tmp/da2_batch_1953298/infer_config.json)
+02/06 10:13:39 --> Output dir: output/infer_config_20260206_101339
+02/06 10:13:39 --> Using 1 GPU
+02/06 10:13:42 --> Model's dtype: torch.float32.
+Traceback (most recent call last):
+  File "/home/unav/miniconda3/envs/da2_py312/bin/accelerate", line 6, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/unav/miniconda3/envs/da2_py312/lib/python3.12/site-packages/accelerate/commands/accelerate_cli.py", line 48, in main
+    args.func(args)
+  File "/home/unav/miniconda3/envs/da2_py312/lib/python3.12/site-packages/accelerate/commands/launch.py", line 1168, in launch_command
+    simple_launcher(args)
+  File "/home/unav/miniconda3/envs/da2_py312/lib/python3.12/site-packages/accelerate/commands/launch.py", line 763, in simple_launcher
+    raise subprocess.CalledProcessError(returncode=process.returncode, cmd=cmd)
+subprocess.CalledProcessError: Command '['/home/unav/miniconda3/envs/da2_py312/bin/python3.12', '/home/unav/Desktop/unav/unav/mapper_floorplan/da2_infer_depth_only.py', '--config_path=/tmp/da2_batch_1953298/infer_config.json']' died with <Signals.SIGKILL: 9>.
+✗ 批次 1 处理失败
+
+✗ DA² 深度估计失败
+[WARN] Failed: New_York_University / Langone / 15_floor
+[DONE] New_York_University / Langone / 15_floor
+------------------------------------------------------------
+
+[RUN] New_York_University / Langone / 16_floor
+╔════════════════════════════════════════════════════════════════╗
+║          自动化地板点云提取流程                                 ║
+╚════════════════════════════════════════════════════════════════╝
+
+位置:       New_York_University
+建筑:       Langone
+楼层:       16_floor
+方法:       depth
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ 找到 532 个关键帧
+✓ 已存在 532 个掩码文件
+
+跳过掩码生成步骤
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+步骤 2: 使用 DA² 生成深度图
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+注意: DA² 需要 Python 3.12 环境 (da2_py312)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DA² 深度估计 (批处理模式)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+输入目录: /mnt/data/UNav-IO/temp/New_York_University/Langone/16_floor/stella_vslam_dense/keyframes
+输出目录: /mnt/data/UNav-IO/temp/New_York_University/Langone/16_floor/floor_map/depth
+总图片数: 532
+批大小:   100
+
+总批次数: 6
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+处理批次 1 / 6 (图片 1 - 100)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+02/06 10:28:02 --> Version: infer_config (from /tmp/da2_batch_1955985/infer_config.json)
+02/06 10:28:02 --> Output dir: output/infer_config_20260206_102802
+02/06 10:28:02 --> Using 1 GPU
+02/06 10:28:05 --> Model's dtype: torch.float32.
+Traceback (most recent call last):
+  File "/home/unav/miniconda3/envs/da2_py312/bin/accelerate", line 6, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/unav/miniconda3/envs/da2_py312/lib/python3.12/site-packages/accelerate/commands/accelerate_cli.py", line 48, in main
+    args.func(args)
+  File "/home/unav/miniconda3/envs/da2_py312/lib/python3.12/site-packages/accelerate/commands/launch.py", line 1168, in launch_command
+    simple_launcher(args)
+  File "/home/unav/miniconda3/envs/da2_py312/lib/python3.12/site-packages/accelerate/commands/launch.py", line 763, in simple_launcher
+    raise subprocess.CalledProcessError(returncode=process.returncode, cmd=cmd)
+subprocess.CalledProcessError: Command '['/home/unav/miniconda3/envs/da2_py312/bin/python3.12', '/home/unav/Desktop/unav/unav/mapper_floorplan/da2_infer_depth_only.py', '--config_path=/tmp/da2_batch_1955985/infer_config.json']' died with <Signals.SIGKILL: 9>.
+✗ 批次 1 处理失败
+
+✗ DA² 深度估计失败
+[WARN] Failed: New_York_University / Langone / 16_floor
+[DONE] New_York_University / Langone / 16_floor
+------------------------------------------------------------
+
+[RUN] New_York_University / Langone / 17_floor
+╔════════════════════════════════════════════════════════════════╗
+║          自动化地板点云提取流程                                 ║
+╚════════════════════════════════════════════════════════════════╝
+
+位置:       New_York_University
+建筑:       Langone
+楼层:       17_floor
+方法:       depth
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ 找到 722 个关键帧
+✓ 已存在 722 个掩码文件
+
+跳过掩码生成步骤
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+步骤 2: 使用 DA² 生成深度图
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+注意: DA² 需要 Python 3.12 环境 (da2_py312)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DA² 深度估计 (批处理模式)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+输入目录: /mnt/data/UNav-IO/temp/New_York_University/Langone/17_floor/stella_vslam_dense/keyframes
+输出目录: /mnt/data/UNav-IO/temp/New_York_University/Langone/17_floor/floor_map/depth
+总图片数: 722
+批大小:   100
+
+总批次数: 8
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+处理批次 1 / 8 (图片 1 - 100)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+02/06 10:41:21 --> Version: infer_config (from /tmp/da2_batch_1959615/infer_config.json)
+02/06 10:41:21 --> Output dir: output/infer_config_20260206_104121
+02/06 10:41:21 --> Using 1 GPU
+02/06 10:41:23 --> Model's dtype: torch.float32.
+Traceback (most recent call last):
+  File "/home/unav/miniconda3/envs/da2_py312/bin/accelerate", line 6, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/unav/miniconda3/envs/da2_py312/lib/python3.12/site-packages/accelerate/commands/accelerate_cli.py", line 48, in main
+    args.func(args)
+  File "/home/unav/miniconda3/envs/da2_py312/lib/python3.12/site-packages/accelerate/commands/launch.py", line 1168, in launch_command
+    simple_launcher(args)
+  File "/home/unav/miniconda3/envs/da2_py312/lib/python3.12/site-packages/accelerate/commands/launch.py", line 763, in simple_launcher
+    raise subprocess.CalledProcessError(returncode=process.returncode, cmd=cmd)
+subprocess.CalledProcessError: Command '['/home/unav/miniconda3/envs/da2_py312/bin/python3.12', '/home/unav/Desktop/unav/unav/mapper_floorplan/da2_infer_depth_only.py', '--config_path=/tmp/da2_batch_1959615/infer_config.json']' died with <Signals.SIGKILL: 9>.
+✗ 批次 1 处理失败
+
+✗ DA² 深度估计失败
+[WARN] Failed: New_York_University / Langone / 17_floor
+[DONE] New_York_University / Langone / 17_floor
+------------------------------------------------------------

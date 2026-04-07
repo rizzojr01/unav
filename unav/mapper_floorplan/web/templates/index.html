@@ -1,0 +1,2212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Floor Map Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 15px;
+        }
+
+        header {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 2em;
+            font-weight: 300;
+            letter-spacing: 2px;
+        }
+
+        h1 span {
+            color: #4fc3f7;
+        }
+
+        .selector-panel {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .selector-group {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 15px;
+            min-width: 180px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .selector-group label {
+            display: block;
+            font-size: 0.8em;
+            color: #4fc3f7;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            font-size: 0.95em;
+            border: none;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%234fc3f7' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+        }
+
+        select:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px #4fc3f7;
+        }
+
+        select option {
+            background: #1a1a2e;
+            color: #fff;
+        }
+
+        .image-type-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .image-type-btn {
+            padding: 10px 25px;
+            font-size: 0.95em;
+            border: 2px solid #4fc3f7;
+            border-radius: 25px;
+            background: transparent;
+            color: #4fc3f7;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .image-type-btn:hover {
+            background: rgba(79, 195, 247, 0.1);
+        }
+
+        .image-type-btn.active {
+            background: #4fc3f7;
+            color: #1a1a2e;
+        }
+
+        .image-type-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* Main content layout */
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 20px;
+            min-height: 600px;
+        }
+
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        /* Main view container */
+        .main-view-container {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 15px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .view-title {
+            font-size: 0.9em;
+            color: #4fc3f7;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .main-view-wrapper {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            cursor: grab;
+            min-height: 400px;
+        }
+
+        .main-view-wrapper:active {
+            cursor: grabbing;
+        }
+
+        .main-view-wrapper img {
+            position: absolute;
+            transform-origin: 0 0;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        #map-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* SVG overlay for camera markers */
+        .camera-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .camera-overlay svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .camera-marker {
+            pointer-events: auto;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .camera-marker:hover {
+            filter: drop-shadow(0 0 8px #4fc3f7);
+        }
+
+        .camera-marker.highlighted {
+            filter: drop-shadow(0 0 12px #ffeb3b);
+        }
+
+        /* Thumbnails row */
+        .thumbnails-row {
+            display: flex;
+            gap: 15px;
+        }
+
+        .thumbnail-container {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .thumbnail-container img {
+            width: 100%;
+            height: auto;
+            border-radius: 6px;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+
+        .thumbnail-container img:hover {
+            opacity: 1;
+        }
+
+        .thumbnail-title {
+            font-size: 0.75em;
+            color: #4fc3f7;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Camera preview panel */
+        .camera-preview-panel {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            flex: 1;
+        }
+
+        .camera-preview-title {
+            font-size: 0.9em;
+            color: #4fc3f7;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .camera-preview-image {
+            width: 100%;
+            aspect-ratio: 2/1;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .camera-preview-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        #camera-preview-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        /* Highlighted points in top view */
+        .highlight-point {
+            fill: #00ff00;
+            stroke: #ffffff;
+            stroke-width: 1;
+            opacity: 0.9;
+        }
+
+        .camera-preview-placeholder {
+            color: rgba(255, 255, 255, 0.3);
+            font-size: 0.9em;
+            text-align: center;
+        }
+
+        .camera-info {
+            margin-top: 10px;
+            font-size: 0.8em;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .camera-floorplan-title {
+            color: #9ad3f5;
+            font-size: 12px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        #camera-floorplan-img {
+            width: 100%;
+            border-radius: 6px;
+            display: block;
+        }
+
+        .camera-floorplan-placeholder {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            text-align: center;
+            padding: 18px 0;
+            border: 1px dashed rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+        }
+
+        .floorplan-panel {
+            margin: 18px auto 0;
+            width: calc(100% - 20px);
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 10px;
+            padding: 12px;
+        }
+
+        .floorplan-image-wrapper {
+            position: relative;
+            width: 100%;
+        }
+
+        #floorplan-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .camera-info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Zoom controls */
+        .zoom-controls {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            display: flex;
+            gap: 6px;
+            z-index: 10;
+        }
+
+        .zoom-btn {
+            width: 32px;
+            height: 32px;
+            border: none;
+            border-radius: 6px;
+            background: rgba(79, 195, 247, 0.2);
+            color: #4fc3f7;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .zoom-btn:hover {
+            background: rgba(79, 195, 247, 0.4);
+        }
+
+        .zoom-info {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #4fc3f7;
+            padding: 6px 10px;
+            border-radius: 5px;
+            font-size: 0.8em;
+            z-index: 10;
+            display: none;
+        }
+
+        /* Placeholder and loading */
+        .placeholder {
+            color: rgba(255, 255, 255, 0.3);
+            font-size: 1.1em;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .placeholder-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+
+        .loading {
+            display: none;
+            color: #4fc3f7;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            width: 35px;
+            height: 35px;
+            border: 3px solid rgba(79, 195, 247, 0.3);
+            border-top-color: #4fc3f7;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 12px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .info-bar {
+            margin-top: 15px;
+            padding: 12px;
+            background: rgba(79, 195, 247, 0.1);
+            border-radius: 6px;
+            text-align: center;
+            font-size: 0.85em;
+            color: #4fc3f7;
+        }
+
+        .error {
+            color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.1);
+        }
+
+        /* Legacy single image mode */
+        .legacy-image-container {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 15px;
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .legacy-image-wrapper {
+            position: relative;
+            width: 100%;
+            height: 70vh;
+            overflow: hidden;
+            cursor: grab;
+            display: none;
+        }
+
+        .legacy-image-wrapper:active {
+            cursor: grabbing;
+        }
+
+        .legacy-image-wrapper img {
+            position: absolute;
+            transform-origin: 0 0;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        /* Hide panels based on mode */
+        .views-mode .legacy-view {
+            display: none;
+        }
+
+        .map-mode .views-panels {
+            display: none;
+        }
+
+        .map-mode .main-content {
+            grid-template-columns: 1fr;
+        }
+
+        /* Scale slider styles */
+        .scale-slider-container {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 12px 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-top: 10px;
+        }
+
+        .scale-slider-label {
+            font-size: 0.75em;
+            color: #4fc3f7;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .scale-slider-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .scale-label-min, .scale-label-max {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 1.2em;
+            width: 20px;
+            text-align: center;
+        }
+
+        #map-scale-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        #map-scale-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #4fc3f7;
+            border-radius: 50%;
+            cursor: grab;
+            transition: background 0.2s, transform 0.2s;
+        }
+
+        #map-scale-slider::-webkit-slider-thumb:hover {
+            background: #81d4fa;
+            transform: scale(1.1);
+        }
+
+        #map-scale-slider::-webkit-slider-thumb:active {
+            cursor: grabbing;
+        }
+
+        #map-scale-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: #4fc3f7;
+            border: none;
+            border-radius: 50%;
+            cursor: grab;
+        }
+
+        .scale-value {
+            color: #4fc3f7;
+            font-size: 0.85em;
+            min-width: 40px;
+            text-align: right;
+        }
+
+        .pose-scale-container {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 12px 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Floor Map <span>Visualization</span></h1>
+        </header>
+
+        <div class="selector-panel">
+            <div class="selector-group">
+                <label>Place</label>
+                <select id="place-select">
+                    <option value="">-- Select Place --</option>
+                </select>
+            </div>
+            <div class="selector-group">
+                <label>Building</label>
+                <select id="building-select" disabled>
+                    <option value="">-- Select Building --</option>
+                </select>
+            </div>
+            <div class="selector-group">
+                <label>Floor</label>
+                <select id="floor-select" disabled>
+                    <option value="">-- Select Floor --</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="image-type-buttons">
+            <button class="image-type-btn" id="btn-views" disabled data-type="views">Floor Map</button>
+            <button class="image-type-btn" id="btn-bev" disabled>BEV Map</button>
+        </div>
+
+        <!-- Views Mode Layout -->
+        <div id="views-panels" class="views-panels" style="display: none;">
+            <div class="main-content">
+                <div class="left-panel">
+                    <div class="main-view-container">
+                        <div class="view-title">Floormap - Hover over cameras to preview</div>
+                        <div class="main-view-wrapper" id="main-view-wrapper">
+                            <canvas id="map-canvas"></canvas>
+                            <div class="camera-overlay" id="camera-overlay">
+                                <svg id="camera-svg"></svg>
+                            </div>
+                        </div>
+                        <div class="zoom-info" id="zoom-info-views">100%</div>
+                        <div class="zoom-controls" id="zoom-controls-views">
+                            <button class="zoom-btn" id="zoom-in-views" title="Zoom In">+</button>
+                            <button class="zoom-btn" id="zoom-out-views" title="Zoom Out">-</button>
+                            <button class="zoom-btn" id="zoom-reset-views" title="Reset">&#x21BA;</button>
+                            <button class="zoom-btn" id="zoom-fit-views" title="Fit">&#x26F6;</button>
+                        </div>
+                    </div>
+                    <!-- Scale Slider -->
+                    <div class="scale-slider-container">
+                        <div class="scale-slider-label">Map Scale</div>
+                        <div class="scale-slider-wrapper">
+                            <span class="scale-label-min">-</span>
+                            <input type="range" id="map-scale-slider" min="0.1" max="3" step="0.1" value="1">
+                            <span class="scale-label-max">+</span>
+                            <span class="scale-value" id="scale-value">1.0x</span>
+                        </div>
+                    </div>
+                    <div class="pose-scale-container">
+                        <div class="scale-slider-label">Pose Scale</div>
+                        <div class="scale-slider-wrapper">
+                            <span class="scale-label-min">-</span>
+                            <input type="range" id="pose-scale-slider" min="0.2" max="3" step="0.1" value="1">
+                            <span class="scale-label-max">+</span>
+                            <span class="scale-value" id="pose-scale-value">1.0x</span>
+                        </div>
+                    </div>
+                    <div class="pose-scale-container">
+                        <div class="scale-slider-label">Floorplan Pose Scale</div>
+                        <div class="scale-slider-wrapper">
+                            <span class="scale-label-min">-</span>
+                            <input type="range" id="floorplan-pose-scale-slider" min="0.2" max="3" step="0.1" value="1">
+                            <span class="scale-label-max">+</span>
+                            <span class="scale-value" id="floorplan-pose-scale-value">1.0x</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="right-panel">
+                    <div class="camera-preview-panel">
+                        <div class="camera-preview-title">Camera Preview</div>
+                        <div class="camera-preview-image" id="camera-preview">
+                            <div class="camera-preview-placeholder" id="camera-placeholder">
+                                Hover over a camera marker<br>to see the image
+                            </div>
+                            <img id="camera-preview-img" style="display: none;" alt="Camera View">
+                        </div>
+                        <div class="camera-info" id="camera-info" style="display: none;">
+                            <div class="camera-info-row">
+                                <span>Camera ID:</span>
+                                <span id="camera-id">-</span>
+                            </div>
+                            <div class="camera-info-row">
+                                <span>Position X:</span>
+                                <span id="camera-pos-x">-</span>
+                            </div>
+                            <div class="camera-info-row">
+                                <span>Position Y:</span>
+                                <span id="camera-pos-y">-</span>
+                            </div>
+                            <div class="camera-info-row">
+                                <span>Position Z:</span>
+                                <span id="camera-pos-z">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map/Legacy Mode Layout -->
+        <div id="legacy-view" class="legacy-view">
+            <div class="legacy-image-container" id="image-container">
+                <div class="placeholder" id="placeholder">
+                    <div class="placeholder-icon">&#x1F5FA;</div>
+                    <p>Please select a place, building, and floor to view the map</p>
+                </div>
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Loading...</p>
+                </div>
+                <div class="legacy-image-wrapper" id="legacy-image-wrapper">
+                    <img id="legacy-image" alt="Floor Map">
+                </div>
+                <div class="zoom-info" id="zoom-info-legacy">100%</div>
+                <div class="zoom-controls" id="zoom-controls-legacy" style="display: none;">
+                    <button class="zoom-btn" id="zoom-in-legacy" title="Zoom In">+</button>
+                    <button class="zoom-btn" id="zoom-out-legacy" title="Zoom Out">-</button>
+                    <button class="zoom-btn" id="zoom-reset-legacy" title="Reset">&#x21BA;</button>
+                    <button class="zoom-btn" id="zoom-fit-legacy" title="Fit">&#x26F6;</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="floorplan-panel" id="floorplan-panel" style="display: none;">
+            <div class="camera-floorplan-title">Floorplan</div>
+            <div class="camera-floorplan-placeholder" id="camera-floorplan-placeholder" style="display: none;">
+                Loading floorplan...
+            </div>
+            <div class="floorplan-image-wrapper" id="floorplan-image-wrapper">
+                <img id="camera-floorplan-img" alt="Floorplan">
+                <canvas id="floorplan-canvas"></canvas>
+            </div>
+        </div>
+
+        <!-- BEV Comparison Panel -->
+        <div id="bev-panel" style="display:none; margin-top: 20px;">
+            <div class="main-view-container" style="min-height: 0;">
+                <div class="view-title">BEV Comparison &mdash; Mesh Rasterization (left) vs Point Scatter (right)</div>
+                <div id="bev-content" style="text-align: center; padding: 20px;">
+                    <div id="bev-loading" style="display:none;">
+                        <div class="spinner"></div>
+                        <p style="color: #4fc3f7; margin-top: 10px;">Generating BEV comparison&hellip; this may take a minute or two.</p>
+                    </div>
+                    <div id="bev-generate" style="display:none;">
+                        <p style="color: rgba(255,255,255,0.6); margin-bottom: 15px;">
+                            BEV mesh comparison not yet generated for this floor.
+                        </p>
+                        <button class="image-type-btn" id="btn-generate-bev">Generate BEV Map</button>
+                    </div>
+                    <div id="bev-error" style="display:none; color: #ff6b6b; word-break: break-all; font-size: 0.85em;"></div>
+                    <img id="bev-image" style="display:none; max-width: 100%; border-radius: 8px;" alt="BEV Comparison">
+                </div>
+            </div>
+        </div>
+
+        <div class="info-bar" id="info-bar" style="display: none;"></div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const placeSelect = document.getElementById('place-select');
+        const buildingSelect = document.getElementById('building-select');
+        const floorSelect = document.getElementById('floor-select');
+        const btnViews = document.getElementById('btn-views');
+        const btnBev = document.getElementById('btn-bev');
+        const viewsPanels = document.getElementById('views-panels');
+        const legacyView = document.getElementById('legacy-view');
+        const placeholder = document.getElementById('placeholder');
+        const loading = document.getElementById('loading');
+        const infoBar = document.getElementById('info-bar');
+
+        // BEV panel elements (comparison image panel)
+        const bevPanel = document.getElementById('bev-panel');
+        const bevLoading = document.getElementById('bev-loading');
+        const bevGenerate = document.getElementById('bev-generate');
+        const bevError = document.getElementById('bev-error');
+        const bevImage = document.getElementById('bev-image');
+        const btnGenerateBev = document.getElementById('btn-generate-bev');
+        let bevPollTimer = null;
+
+        // BEV mesh canvas overlay state
+        let bevMeshImg = null;       // HTMLImageElement loaded from /image/.../bev_mesh
+        let bevBoundsData = null;    // {x_min,x_max,z_min,z_max} from floor_metadata
+        let bevContourData = null;   // outer contour [{x,z}[]] in world coords
+        let useBevMode = true;       // always use mesh when available
+
+        // Views mode elements
+        const mainViewWrapper = document.getElementById('main-view-wrapper');
+        const mapCanvas = document.getElementById('map-canvas');
+        const mapCtx = mapCanvas.getContext('2d');
+        const cameraSvg = document.getElementById('camera-svg');
+        const cameraPreviewImg = document.getElementById('camera-preview-img');
+        const cameraPlaceholder = document.getElementById('camera-placeholder');
+        const cameraInfo = document.getElementById('camera-info');
+        const floorplanPanel = document.getElementById('floorplan-panel');
+        const cameraFloorplanImg = document.getElementById('camera-floorplan-img');
+        const cameraFloorplanPlaceholder = document.getElementById('camera-floorplan-placeholder');
+        const floorplanCanvas = document.getElementById('floorplan-canvas');
+        const floorplanCtx = floorplanCanvas.getContext('2d');
+        const floorplanImageWrapper = document.getElementById('floorplan-image-wrapper');
+        const mapScaleSlider = document.getElementById('map-scale-slider');
+        const scaleValueDisplay = document.getElementById('scale-value');
+        const poseScaleSlider = document.getElementById('pose-scale-slider');
+        const poseScaleValueDisplay = document.getElementById('pose-scale-value');
+        const floorplanPoseScaleSlider = document.getElementById('floorplan-pose-scale-slider');
+        const floorplanPoseScaleValueDisplay = document.getElementById('floorplan-pose-scale-value');
+
+        // Legacy mode elements
+        const legacyImageWrapper = document.getElementById('legacy-image-wrapper');
+        const legacyImage = document.getElementById('legacy-image');
+
+        let currentSelection = { place: '', building: '', floor: '' };
+        let availableImages = [];
+        let currentMode = null; // 'map' or 'views'
+        let cameraData = {};
+        let viewBounds = {};
+        let keyframePoints = {};  // kf_id -> [[nx, nz], ...]
+        let keyframeData = {};    // kf_id -> {pose_cw, points_c or points_w}
+        let mapPoints = [];       // [{x,z}]
+        let baseBounds = null;    // fixed bounds from scale=1
+        let poseScale = 1.0;
+        let mapScale = 1.0;
+        let floorCorrection = { R: null };
+        let manhattanYaw = 0.0;
+        let cameraDataRaw = {};
+        let mapPointsByKf = {};
+        let activeHighlightKfId = null;
+        let floorplanTransform = null;
+        let floorplanImageLoaded = false;
+        let floorplanPoseScale = 1.0;
+        let floorplanMarkerCache = [];
+
+        // Zoom/pan state for views mode
+        let viewsScale = 1;
+        let viewsTranslateX = 0;
+        let viewsTranslateY = 0;
+        let viewsIsDragging = false;
+        let viewsStartX = 0;
+        let viewsStartY = 0;
+        let viewsLastTranslateX = 0;
+        let viewsLastTranslateY = 0;
+
+        // Zoom/pan state for legacy mode
+        let legacyScale = 1;
+        let legacyTranslateX = 0;
+        let legacyTranslateY = 0;
+        let legacyIsDragging = false;
+        let legacyStartX = 0;
+        let legacyStartY = 0;
+        let legacyLastTranslateX = 0;
+        let legacyLastTranslateY = 0;
+
+        const MIN_SCALE = 0.1;
+        const MAX_SCALE = 10;
+        const ZOOM_STEP = 0.2;
+
+        function applyFloorRotation(vec) {
+            if (!floorCorrection.R) return vec;
+            const R = floorCorrection.R;
+            return [
+                R[0][0] * vec[0] + R[0][1] * vec[1] + R[0][2] * vec[2],
+                R[1][0] * vec[0] + R[1][1] * vec[1] + R[1][2] * vec[2],
+                R[2][0] * vec[0] + R[2][1] * vec[1] + R[2][2] * vec[2],
+            ];
+        }
+
+        function applyYawRotation(vec, yaw) {
+            if (!yaw) return vec;
+            const c = Math.cos(yaw);
+            const s = Math.sin(yaw);
+            const x = c * vec[0] - s * vec[2];
+            const z = s * vec[0] + c * vec[2];
+            return [x, vec[1], z];
+        }
+
+        function pointInTriangle(px, py, a, b, c) {
+            const v0x = c[0] - a[0];
+            const v0y = c[1] - a[1];
+            const v1x = b[0] - a[0];
+            const v1y = b[1] - a[1];
+            const v2x = px - a[0];
+            const v2y = py - a[1];
+
+            const dot00 = v0x * v0x + v0y * v0y;
+            const dot01 = v0x * v1x + v0y * v1y;
+            const dot02 = v0x * v2x + v0y * v2y;
+            const dot11 = v1x * v1x + v1y * v1y;
+            const dot12 = v1x * v2x + v1y * v2y;
+
+            const invDenom = 1 / (dot00 * dot11 - dot01 * dot01 + 1e-12);
+            const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+            const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+            return (u >= 0) && (v >= 0) && (u + v <= 1);
+        }
+
+        function resizeFloorplanCanvas() {
+            if (!floorplanImageWrapper || !cameraFloorplanImg) return;
+            const rect = floorplanImageWrapper.getBoundingClientRect();
+            floorplanCanvas.width = Math.max(1, Math.floor(rect.width));
+            floorplanCanvas.height = Math.max(1, Math.floor(rect.height));
+            drawFloorplanMarkers();
+        }
+
+        function computeFloorplanCameraData() {
+            if (!floorplanTransform || !keyframeData) return [];
+            const M = floorplanTransform;
+            const cameraIds = Object.keys(keyframeData);
+            const step = Math.max(1, Math.floor(cameraIds.length / 100));
+            const output = [];
+
+            for (let i = 0; i < cameraIds.length; i += step) {
+                const kfId = cameraIds[i];
+                const pose = keyframeData[kfId].pose_cw;
+                if (!pose) continue;
+
+                const Rcw = [
+                    [pose[0][0], pose[0][1], pose[0][2]],
+                    [pose[1][0], pose[1][1], pose[1][2]],
+                    [pose[2][0], pose[2][1], pose[2][2]],
+                ];
+                const t = [pose[0][3], pose[1][3], pose[2][3]];
+                const Rwc = [
+                    [Rcw[0][0], Rcw[1][0], Rcw[2][0]],
+                    [Rcw[0][1], Rcw[1][1], Rcw[2][1]],
+                    [Rcw[0][2], Rcw[1][2], Rcw[2][2]],
+                ];
+                const pos = [
+                    -(Rwc[0][0]*t[0] + Rwc[0][1]*t[1] + Rwc[0][2]*t[2]),
+                    -(Rwc[1][0]*t[0] + Rwc[1][1]*t[1] + Rwc[1][2]*t[2]),
+                    -(Rwc[2][0]*t[0] + Rwc[2][1]*t[1] + Rwc[2][2]*t[2]),
+                ];
+                const forward = [
+                    Rwc[0][2],
+                    Rwc[1][2],
+                    Rwc[2][2],
+                ];
+                const pos1 = [pos[0], pos[1], pos[2], 1.0];
+                const fwd = [pos[0] + forward[0], pos[1] + forward[1], pos[2] + forward[2], 1.0];
+
+                const x = M[0][0]*pos1[0] + M[0][1]*pos1[1] + M[0][2]*pos1[2] + M[0][3]*pos1[3];
+                const y = M[1][0]*pos1[0] + M[1][1]*pos1[1] + M[1][2]*pos1[2] + M[1][3]*pos1[3];
+                const x2 = M[0][0]*fwd[0] + M[0][1]*fwd[1] + M[0][2]*fwd[2] + M[0][3]*fwd[3];
+                const y2 = M[1][0]*fwd[0] + M[1][1]*fwd[1] + M[1][2]*fwd[2] + M[1][3]*fwd[3];
+                const ang = Math.atan2(y2 - y, x2 - x);
+
+                output.push({x, y, ang, kfId});
+            }
+            return output;
+        }
+
+        // Draw camera markers on floorplan canvas using BEV world-coordinate bounds
+        function drawBevFloorplanMarkers() {
+            if (!floorplanCtx || !bevBoundsData) return;
+            const w = floorplanCanvas.width;
+            const h = floorplanCanvas.height;
+            if (w < 2 || h < 2) return;
+            floorplanCtx.clearRect(0, 0, w, h);
+
+            const xMin = bevBoundsData.x_min || 0;
+            const xMax = bevBoundsData.x_max || 1;
+            const zMin = bevBoundsData.z_min || 0;
+            const zMax = bevBoundsData.z_max || 1;
+            const dx = xMax - xMin || 1;
+            const dz = zMax - zMin || 1;
+
+            const size = 10 * floorplanPoseScale;
+            floorplanMarkerCache = [];
+
+            Object.keys(cameraData).forEach(kfId => {
+                const cam = cameraData[kfId];
+                // World X/Z → canvas pixel (Z flipped: canvas Y grows down, world Z grows up)
+                const cx = ((cam.x - xMin) / dx) * w;
+                const cy = h - ((cam.z - zMin) / dz) * h;
+                const angle = Math.atan2(-cam.dir_z, cam.dir_x);
+
+                const p0 = [cx - Math.cos(angle) * size * 2.0, cy - Math.sin(angle) * size * 2.0];
+                const p1 = [
+                    cx + Math.cos(angle) * size * 0.6 + Math.cos(angle + Math.PI/2) * size * 0.8,
+                    cy + Math.sin(angle) * size * 0.6 + Math.sin(angle + Math.PI/2) * size * 0.8
+                ];
+                const p2 = [
+                    cx + Math.cos(angle) * size * 0.6 + Math.cos(angle - Math.PI/2) * size * 0.8,
+                    cy + Math.sin(angle) * size * 0.6 + Math.sin(angle - Math.PI/2) * size * 0.8
+                ];
+
+                const isHighlight = activeHighlightKfId && String(kfId) === String(activeHighlightKfId);
+                floorplanCtx.fillStyle   = isHighlight ? '#ffd54f' : '#ff4444';
+                floorplanCtx.strokeStyle = '#000000';
+                floorplanCtx.lineWidth   = 1;
+                floorplanCtx.beginPath();
+                floorplanCtx.moveTo(p0[0], p0[1]);
+                floorplanCtx.lineTo(p1[0], p1[1]);
+                floorplanCtx.lineTo(p2[0], p2[1]);
+                floorplanCtx.closePath();
+                floorplanCtx.fill();
+                floorplanCtx.stroke();
+
+                floorplanMarkerCache.push({ kfId, p0, p1, p2 });
+            });
+        }
+
+        // Switch floorplan panel to show the BEV mesh image instead of floorplan.png
+        function updateFloorplanWithBev(place, building, floor) {
+            if (!place || !building || !floor) return;
+            floorplanPanel.style.display = 'block';
+            cameraFloorplanPlaceholder.style.display = 'none';
+            cameraFloorplanImg.onload = () => {
+                cameraFloorplanImg.style.display = 'block';
+                floorplanImageLoaded = true;
+                resizeFloorplanCanvas();
+                cameraFloorplanImg.onload = null;
+            };
+            cameraFloorplanImg.onerror = () => { cameraFloorplanImg.onerror = null; };
+            cameraFloorplanImg.src = `/image/${place}/${building}/${floor}/bev_mesh?t=${Date.now()}`;
+            cameraFloorplanImg.style.display = 'block';
+        }
+
+        function drawFloorplanMarkers() {
+            // If BEV mesh is active and bounds are available, use BEV coordinate system
+            if (bevMeshImg && bevMeshImg.complete && bevMeshImg.naturalWidth && bevBoundsData) {
+                drawBevFloorplanMarkers();
+                return;
+            }
+            if (!floorplanCtx || !floorplanImageLoaded || !floorplanTransform) return;
+            const w = floorplanCanvas.width;
+            const h = floorplanCanvas.height;
+            if (w < 2 || h < 2) return;
+            floorplanCtx.clearRect(0, 0, w, h);
+
+            const natW = cameraFloorplanImg.naturalWidth || w;
+            const natH = cameraFloorplanImg.naturalHeight || h;
+            const scaleX = w / natW;
+            const scaleY = h / natH;
+
+            const cams = computeFloorplanCameraData();
+            const size = 10 * floorplanPoseScale;
+            floorplanMarkerCache = [];
+
+            cams.forEach((cam) => {
+                const cx = cam.x * scaleX;
+                const cy = cam.y * scaleY;
+                const angle = cam.ang;
+
+                const p0 = [cx - Math.cos(angle) * size * 2.0, cy - Math.sin(angle) * size * 2.0];
+                const p1 = [
+                    cx + Math.cos(angle) * size * 0.6 + Math.cos(angle + Math.PI/2) * size * 0.8,
+                    cy + Math.sin(angle) * size * 0.6 + Math.sin(angle + Math.PI/2) * size * 0.8
+                ];
+                const p2 = [
+                    cx + Math.cos(angle) * size * 0.6 + Math.cos(angle - Math.PI/2) * size * 0.8,
+                    cy + Math.sin(angle) * size * 0.6 + Math.sin(angle - Math.PI/2) * size * 0.8
+                ];
+
+                const kfId = cam.kfId;
+                const isHighlight = activeHighlightKfId && String(kfId) === String(activeHighlightKfId);
+
+                floorplanCtx.fillStyle = isHighlight ? '#ffd54f' : '#ff4444';
+                floorplanCtx.strokeStyle = '#000000';
+                floorplanCtx.lineWidth = 1;
+                floorplanCtx.beginPath();
+                floorplanCtx.moveTo(p0[0], p0[1]);
+                floorplanCtx.lineTo(p1[0], p1[1]);
+                floorplanCtx.lineTo(p2[0], p2[1]);
+                floorplanCtx.closePath();
+                floorplanCtx.fill();
+                floorplanCtx.stroke();
+
+                floorplanMarkerCache.push({ kfId, p0, p1, p2 });
+            });
+        }
+
+        function loadFloorplan(place, building, floor) {
+            return new Promise(resolve => {
+                floorplanPanel.style.display = 'block';
+                cameraFloorplanImg.style.display = 'none';
+                cameraFloorplanPlaceholder.style.display = 'block';
+                cameraFloorplanPlaceholder.textContent = 'Loading floorplan...';
+                floorplanImageLoaded = false;
+
+                const onLoad = () => {
+                    cameraFloorplanImg.style.display = 'block';
+                    cameraFloorplanPlaceholder.style.display = 'none';
+                    floorplanImageLoaded = true;
+                    resizeFloorplanCanvas();
+                    cleanup();
+                    resolve(true);
+                };
+                const onError = () => {
+                    cameraFloorplanImg.style.display = 'none';
+                    cameraFloorplanPlaceholder.style.display = 'block';
+                    cameraFloorplanPlaceholder.textContent = 'Floorplan not found';
+                    cleanup();
+                    resolve(false);
+                };
+                const cleanup = () => {
+                    cameraFloorplanImg.onload = null;
+                    cameraFloorplanImg.onerror = null;
+                };
+
+                cameraFloorplanImg.onload = onLoad;
+                cameraFloorplanImg.onerror = onError;
+                cameraFloorplanImg.src = `/floorplan_image/${place}/${building}/${floor}?t=${Date.now()}`;
+
+                if (cameraFloorplanImg.complete) {
+                    onLoad();
+                }
+            });
+        }
+
+        function computeYawFromPoints(points) {
+            if (!points || points.length < 10) return 0.0;
+            let meanX = 0;
+            let meanZ = 0;
+            for (let i = 0; i < points.length; i++) {
+                meanX += points[i].x;
+                meanZ += points[i].z;
+            }
+            meanX /= points.length;
+            meanZ /= points.length;
+
+            let covXX = 0;
+            let covZZ = 0;
+            let covXZ = 0;
+            for (let i = 0; i < points.length; i++) {
+                const dx = points[i].x - meanX;
+                const dz = points[i].z - meanZ;
+                covXX += dx * dx;
+                covZZ += dz * dz;
+                covXZ += dx * dz;
+            }
+            covXX /= points.length;
+            covZZ /= points.length;
+            covXZ /= points.length;
+
+            const angle = 0.5 * Math.atan2(2 * covXZ, covXX - covZZ);
+            return -angle;
+        }
+
+        // Initialize
+        async function init() {
+            await loadPlaces();
+
+            const config = await fetch('/api/config').then(r => r.json());
+            if (config.default_place) {
+                placeSelect.value = config.default_place;
+                await onPlaceChange();
+
+                if (config.default_building) {
+                    buildingSelect.value = config.default_building;
+                    await onBuildingChange();
+
+                    if (config.default_floor) {
+                        floorSelect.value = config.default_floor;
+                        await onFloorChange();
+                    }
+                }
+            }
+
+            initZoomPan();
+            window.addEventListener('resize', resizeCanvas);
+        }
+
+        function resizeCanvas() {
+            const rect = mainViewWrapper.getBoundingClientRect();
+            mapCanvas.width = Math.max(1, Math.floor(rect.width));
+            mapCanvas.height = Math.max(1, Math.floor(rect.height));
+            renderMap();
+        }
+
+        function initZoomPan() {
+            // Views mode zoom/pan
+            mainViewWrapper.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const rect = mainViewWrapper.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+                zoomViewsAtPoint(mouseX, mouseY, delta);
+            });
+
+            mainViewWrapper.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                viewsIsDragging = true;
+                viewsStartX = e.clientX;
+                viewsStartY = e.clientY;
+                viewsLastTranslateX = viewsTranslateX;
+                viewsLastTranslateY = viewsTranslateY;
+                mainViewWrapper.style.cursor = 'grabbing';
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (viewsIsDragging) {
+                    viewsTranslateX = viewsLastTranslateX + (e.clientX - viewsStartX);
+                    viewsTranslateY = viewsLastTranslateY + (e.clientY - viewsStartY);
+                    updateViewsTransform();
+                }
+                if (legacyIsDragging) {
+                    legacyTranslateX = legacyLastTranslateX + (e.clientX - legacyStartX);
+                    legacyTranslateY = legacyLastTranslateY + (e.clientY - legacyStartY);
+                    updateLegacyTransform();
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                viewsIsDragging = false;
+                legacyIsDragging = false;
+                mainViewWrapper.style.cursor = 'grab';
+                legacyImageWrapper.style.cursor = 'grab';
+            });
+
+            mainViewWrapper.addEventListener('dblclick', fitViewsToContainer);
+
+            // Views zoom buttons
+            document.getElementById('zoom-in-views').addEventListener('click', () => {
+                const rect = mainViewWrapper.getBoundingClientRect();
+                zoomViewsAtPoint(rect.width / 2, rect.height / 2, ZOOM_STEP);
+            });
+            document.getElementById('zoom-out-views').addEventListener('click', () => {
+                const rect = mainViewWrapper.getBoundingClientRect();
+                zoomViewsAtPoint(rect.width / 2, rect.height / 2, -ZOOM_STEP);
+            });
+            document.getElementById('zoom-reset-views').addEventListener('click', resetViewsZoom);
+            document.getElementById('zoom-fit-views').addEventListener('click', fitViewsToContainer);
+
+            // Legacy mode zoom/pan
+            legacyImageWrapper.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const rect = legacyImageWrapper.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+                zoomLegacyAtPoint(mouseX, mouseY, delta);
+            });
+
+            legacyImageWrapper.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                legacyIsDragging = true;
+                legacyStartX = e.clientX;
+                legacyStartY = e.clientY;
+                legacyLastTranslateX = legacyTranslateX;
+                legacyLastTranslateY = legacyTranslateY;
+                legacyImageWrapper.style.cursor = 'grabbing';
+            });
+
+            legacyImageWrapper.addEventListener('dblclick', fitLegacyToContainer);
+
+            // Legacy zoom buttons
+            document.getElementById('zoom-in-legacy').addEventListener('click', () => {
+                const rect = legacyImageWrapper.getBoundingClientRect();
+                zoomLegacyAtPoint(rect.width / 2, rect.height / 2, ZOOM_STEP);
+            });
+            document.getElementById('zoom-out-legacy').addEventListener('click', () => {
+                const rect = legacyImageWrapper.getBoundingClientRect();
+                zoomLegacyAtPoint(rect.width / 2, rect.height / 2, -ZOOM_STEP);
+            });
+            document.getElementById('zoom-reset-legacy').addEventListener('click', resetLegacyZoom);
+            document.getElementById('zoom-fit-legacy').addEventListener('click', fitLegacyToContainer);
+        }
+
+        // Views mode zoom functions
+        function zoomViewsAtPoint(x, y, delta) {
+            const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, viewsScale + delta));
+            const scaleRatio = newScale / viewsScale;
+            viewsTranslateX = x - (x - viewsTranslateX) * scaleRatio;
+            viewsTranslateY = y - (y - viewsTranslateY) * scaleRatio;
+            viewsScale = newScale;
+            updateViewsTransform();
+        }
+
+        function updateViewsTransform() {
+            renderMap();
+            updateCameraMarkers();
+            showZoomInfo('zoom-info-views', viewsScale);
+        }
+
+        function resetViewsZoom() {
+            viewsScale = 1;
+            viewsTranslateX = 0;
+            viewsTranslateY = 0;
+            updateViewsTransform();
+        }
+
+        function fitViewsToContainer() {
+            viewsScale = 1;
+            viewsTranslateX = 0;
+            viewsTranslateY = 0;
+            updateViewsTransform();
+        }
+
+        // Legacy mode zoom functions
+        function zoomLegacyAtPoint(x, y, delta) {
+            const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, legacyScale + delta));
+            const scaleRatio = newScale / legacyScale;
+            legacyTranslateX = x - (x - legacyTranslateX) * scaleRatio;
+            legacyTranslateY = y - (y - legacyTranslateY) * scaleRatio;
+            legacyScale = newScale;
+            updateLegacyTransform();
+        }
+
+        function updateLegacyTransform() {
+            legacyImage.style.transform = `translate(${legacyTranslateX}px, ${legacyTranslateY}px) scale(${legacyScale})`;
+            showZoomInfo('zoom-info-legacy', legacyScale);
+        }
+
+        function resetLegacyZoom() {
+            legacyScale = 1;
+            legacyTranslateX = 0;
+            legacyTranslateY = 0;
+            updateLegacyTransform();
+        }
+
+        function fitLegacyToContainer() {
+            if (!legacyImage.naturalWidth) return;
+            const containerRect = legacyImageWrapper.getBoundingClientRect();
+            const imgWidth = legacyImage.naturalWidth;
+            const imgHeight = legacyImage.naturalHeight;
+            const scaleX = containerRect.width / imgWidth;
+            const scaleY = containerRect.height / imgHeight;
+            legacyScale = Math.min(scaleX, scaleY) * 0.95;
+            legacyTranslateX = (containerRect.width - imgWidth * legacyScale) / 2;
+            legacyTranslateY = (containerRect.height - imgHeight * legacyScale) / 2;
+            updateLegacyTransform();
+        }
+
+        function showZoomInfo(elementId, scale) {
+            const zoomInfo = document.getElementById(elementId);
+            zoomInfo.textContent = `${Math.round(scale * 100)}%`;
+            zoomInfo.style.display = 'block';
+            clearTimeout(window[elementId + 'Timeout']);
+            window[elementId + 'Timeout'] = setTimeout(() => {
+                zoomInfo.style.display = 'none';
+            }, 2000);
+        }
+
+        // Data loading functions
+        async function loadPlaces() {
+            const places = await fetch('/api/places').then(r => r.json());
+            placeSelect.innerHTML = '<option value="">-- Select Place --</option>';
+            places.forEach(place => {
+                const opt = document.createElement('option');
+                opt.value = place;
+                opt.textContent = place;
+                placeSelect.appendChild(opt);
+            });
+        }
+
+        async function onPlaceChange() {
+            const place = placeSelect.value;
+            currentSelection.place = place;
+            currentSelection.building = '';
+            currentSelection.floor = '';
+
+            buildingSelect.innerHTML = '<option value="">-- Select Building --</option>';
+            floorSelect.innerHTML = '<option value="">-- Select Floor --</option>';
+            buildingSelect.disabled = !place;
+            floorSelect.disabled = true;
+            resetImageButtons();
+            hideAll();
+
+            if (place) {
+                const buildings = await fetch(`/api/buildings/${place}`).then(r => r.json());
+                buildings.forEach(building => {
+                    const opt = document.createElement('option');
+                    opt.value = building;
+                    opt.textContent = building;
+                    buildingSelect.appendChild(opt);
+                });
+            }
+        }
+
+        async function onBuildingChange() {
+            const building = buildingSelect.value;
+            currentSelection.building = building;
+            currentSelection.floor = '';
+
+            floorSelect.innerHTML = '<option value="">-- Select Floor --</option>';
+            floorSelect.disabled = !building;
+            resetImageButtons();
+            hideAll();
+
+            if (building) {
+                const floors = await fetch(`/api/floors/${currentSelection.place}/${building}`).then(r => r.json());
+                floors.forEach(floor => {
+                    const opt = document.createElement('option');
+                    opt.value = floor;
+                    opt.textContent = floor;
+                    floorSelect.appendChild(opt);
+                });
+            }
+        }
+
+        async function onFloorChange() {
+            const floor = floorSelect.value;
+            currentSelection.floor = floor;
+
+            resetImageButtons();
+            hideAll();
+
+            if (floor) {
+                const { place, building } = currentSelection;
+                availableImages = await fetch(`/api/images/${place}/${building}/${floor}`).then(r => r.json());
+
+                availableImages.forEach(img => {
+                    if (img.type === 'views') btnViews.disabled = false;
+                });
+                // BEV button is always available once a floor is selected
+                btnBev.disabled = false;
+
+                if (availableImages.length === 0) {
+                    showInfo('No map files available for this location', true);
+                } else {
+                    await loadFloorplan(place, building, floor);
+                    // Always load views mode (floor map)
+                    loadImage('views');
+                }
+            }
+        }
+
+        function resetImageButtons() {
+            btnViews.disabled = true;
+            btnViews.classList.remove('active');
+            btnBev.disabled = true;
+            btnBev.classList.remove('active');
+        }
+
+        function hideAll() {
+            viewsPanels.style.display = 'none';
+            legacyView.style.display = 'block';
+            legacyImageWrapper.style.display = 'none';
+            placeholder.style.display = 'block';
+            infoBar.style.display = 'none';
+            document.getElementById('zoom-controls-legacy').style.display = 'none';
+            currentMode = null;
+            floorplanPanel.style.display = 'none';
+            cameraFloorplanImg.style.display = 'none';
+            cameraFloorplanPlaceholder.style.display = 'none';
+            floorplanTransform = null;
+            floorplanImageLoaded = false;
+            // Reset BEV state
+            bevPanel.style.display = 'none';
+            useBevMode = false;
+            bevMeshImg = null;
+            bevBoundsData = null;
+            if (bevPollTimer) { clearInterval(bevPollTimer); bevPollTimer = null; }
+        }
+
+        function showInfo(message, isError = false) {
+            infoBar.textContent = message;
+            infoBar.style.display = 'block';
+            infoBar.className = isError ? 'info-bar error' : 'info-bar';
+        }
+
+        async function loadImage(type) {
+            const { place, building, floor } = currentSelection;
+            if (!place || !building || !floor) return;
+
+            btnViews.classList.toggle('active', type === 'views');
+
+            // Check if separate views are available
+            const check = await fetch(`/api/has_separate_views/${place}/${building}/${floor}`).then(r => r.json());
+
+            if (check.has_separate_views) {
+                await loadSeparateViews(place, building, floor);
+            } else {
+                // Fall back to combined view
+                loadLegacyImage('views');
+            }
+        }
+
+        async function loadSeparateViews(place, building, floor) {
+            currentMode = 'views';
+            viewsPanels.style.display = 'block';
+            legacyView.style.display = 'none';
+
+            // Load floor normal correction (global alignment to up-axis)
+            const normalData = await fetch(`/api/floor_normal/${place}/${building}/${floor}`).then(r => r.json());
+            floorCorrection.R = (normalData && normalData.rotation) ? normalData.rotation : null;
+
+            // Try to load floorplan image if present
+            await loadFloorplan(place, building, floor);
+            const fpData = await fetch(`/api/floorplan_transform/${place}/${building}/${floor}`).then(r => r.json());
+            floorplanTransform = fpData ? fpData.transform : null;
+
+            // Load per-keyframe points and poses
+            const data = await fetch(`/api/keyframe_points/${place}/${building}/${floor}?max_points=200`).then(r => r.json());
+            keyframeData = data.keyframes || {};
+            buildCameraData();
+            rebuildMapPoints(1.0, true, false);
+            manhattanYaw = computeYawFromPoints(mapPoints);
+            applyYawToCameraData();
+            rebuildMapPoints(1.0, true, true);
+            resizeCanvas();
+            drawCameraMarkers();
+            drawFloorplanMarkers();
+
+            // Reset camera preview
+            cameraPreviewImg.style.display = 'none';
+            cameraPlaceholder.style.display = 'block';
+            cameraInfo.style.display = 'none';
+
+            // Reset scale slider
+            mapScaleSlider.value = 1;
+            scaleValueDisplay.textContent = '1.0x';
+            mapScale = 1.0;
+            poseScaleSlider.value = 1;
+            poseScaleValueDisplay.textContent = '1.0x';
+            poseScale = 1.0;
+            floorplanPoseScaleSlider.value = 1;
+            floorplanPoseScaleValueDisplay.textContent = '1.0x';
+            floorplanPoseScale = 1.0;
+
+            showInfo(`${place} / ${building} / ${floor} - Floor Map (Hover over cameras to preview)`);
+
+            // Load BEV mesh image + bounds + contour; use mesh as default rendering
+            bevMeshImg = null;
+            bevBoundsData = null;
+            bevContourData = null;
+            fetch(`/api/bev_bounds/${place}/${building}/${floor}`)
+                .then(r => r.json())
+                .then(d => { if (d.bounds) bevBoundsData = d.bounds; })
+                .catch(() => {});
+            fetch(`/api/bev_contour/${place}/${building}/${floor}`)
+                .then(r => r.json())
+                .then(d => { if (Array.isArray(d)) { bevContourData = d; renderMap(); } })
+                .catch(() => {});
+            const _img = new Image();
+            _img.onload = () => {
+                bevMeshImg = _img;
+                renderMap();
+                drawCameraMarkers();
+                updateFloorplanWithBev(place, building, floor);
+            };
+            _img.src = `/image/${place}/${building}/${floor}/bev_mesh`;
+        }
+
+        function buildCameraData() {
+            cameraDataRaw = {};
+            cameraData = {};
+            Object.keys(keyframeData).forEach(kfId => {
+                const pose = keyframeData[kfId].pose_cw;
+                if (!pose) return;
+                const Rcw = [
+                    [pose[0][0], pose[0][1], pose[0][2]],
+                    [pose[1][0], pose[1][1], pose[1][2]],
+                    [pose[2][0], pose[2][1], pose[2][2]],
+                ];
+                const t = [pose[0][3], pose[1][3], pose[2][3]];
+                const Rwc = [
+                    [Rcw[0][0], Rcw[1][0], Rcw[2][0]],
+                    [Rcw[0][1], Rcw[1][1], Rcw[2][1]],
+                    [Rcw[0][2], Rcw[1][2], Rcw[2][2]],
+                ];
+                const pos = [
+                    -(Rwc[0][0]*t[0] + Rwc[0][1]*t[1] + Rwc[0][2]*t[2]),
+                    -(Rwc[1][0]*t[0] + Rwc[1][1]*t[1] + Rwc[1][2]*t[2]),
+                    -(Rwc[2][0]*t[0] + Rwc[2][1]*t[1] + Rwc[2][2]*t[2]),
+                ];
+                const forward = [
+                    Rwc[0][2],
+                    Rwc[1][2],
+                    Rwc[2][2],
+                ];
+                const posRot = applyFloorRotation(pos);
+                const forwardRot = applyFloorRotation(forward);
+                cameraDataRaw[kfId] = {
+                    x: posRot[0], y: posRot[1], z: posRot[2],
+                    dir_x: forwardRot[0], dir_y: forwardRot[1], dir_z: forwardRot[2]
+                };
+            });
+            applyYawToCameraData();
+        }
+
+        function applyYawToCameraData() {
+            cameraData = {};
+            Object.keys(cameraDataRaw).forEach(kfId => {
+                const cam = cameraDataRaw[kfId];
+                const posRot = applyYawRotation([cam.x, cam.y, cam.z], manhattanYaw);
+                const dirRot = applyYawRotation([cam.dir_x, cam.dir_y, cam.dir_z], manhattanYaw);
+                cameraData[kfId] = {
+                    x: posRot[0], y: posRot[1], z: posRot[2],
+                    dir_x: dirRot[0], dir_y: dirRot[1], dir_z: dirRot[2]
+                };
+            });
+        }
+
+        function rebuildMapPoints(scale, updateBounds, useYaw = true) {
+            mapPoints = [];
+            mapPointsByKf = {};
+            let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+
+            Object.keys(keyframeData).forEach(kfId => {
+                const pose = keyframeData[kfId].pose_cw;
+                const pts_c = keyframeData[kfId].points_c || [];
+                const pts_w = keyframeData[kfId].points_w || [];
+                const cam_pos = keyframeData[kfId].cam_pos || null;
+                if ((!pose && pts_w.length === 0) || (pts_c.length === 0 && pts_w.length === 0)) return;
+
+                if (!mapPointsByKf[kfId]) mapPointsByKf[kfId] = [];
+                if (pts_w.length > 0 && cam_pos) {
+                    const cx = cam_pos[0];
+                    const cz = cam_pos[2];
+                    for (let i = 0; i < pts_w.length; i++) {
+                        const p = pts_w[i];
+                        const sx = cx + (p[0] - cx) * scale;
+                        const sz = cz + (p[1] - cz) * scale;
+                        const wry = useYaw ? applyYawRotation([sx, 0, sz], manhattanYaw) : [sx, 0, sz];
+                        mapPoints.push({x: wry[0], z: wry[2]});
+                        mapPointsByKf[kfId].push({x: wry[0], z: wry[2]});
+                        if (updateBounds) {
+                            if (wry[0] < minX) minX = wry[0];
+                            if (wry[0] > maxX) maxX = wry[0];
+                            if (wry[2] < minZ) minZ = wry[2];
+                            if (wry[2] > maxZ) maxZ = wry[2];
+                        }
+                    }
+                } else {
+                    const Rcw = [
+                        [pose[0][0], pose[0][1], pose[0][2]],
+                        [pose[1][0], pose[1][1], pose[1][2]],
+                        [pose[2][0], pose[2][1], pose[2][2]],
+                    ];
+                    const t = [pose[0][3], pose[1][3], pose[2][3]];
+                    const Rwc = [
+                        [Rcw[0][0], Rcw[1][0], Rcw[2][0]],
+                        [Rcw[0][1], Rcw[1][1], Rcw[2][1]],
+                        [Rcw[0][2], Rcw[1][2], Rcw[2][2]],
+                    ];
+                    const t_wc = [
+                        -(Rwc[0][0]*t[0] + Rwc[0][1]*t[1] + Rwc[0][2]*t[2]),
+                        -(Rwc[1][0]*t[0] + Rwc[1][1]*t[1] + Rwc[1][2]*t[2]),
+                        -(Rwc[2][0]*t[0] + Rwc[2][1]*t[1] + Rwc[2][2]*t[2]),
+                    ];
+
+                    for (let i = 0; i < pts_c.length; i++) {
+                        const p = pts_c[i];
+                        const pc = [p[0]*scale, p[1]*scale, p[2]*scale];
+                        const wx = Rwc[0][0]*pc[0] + Rwc[0][1]*pc[1] + Rwc[0][2]*pc[2] + t_wc[0];
+                        const wy = Rwc[1][0]*pc[0] + Rwc[1][1]*pc[1] + Rwc[1][2]*pc[2] + t_wc[1];
+                        const wz = Rwc[2][0]*pc[0] + Rwc[2][1]*pc[1] + Rwc[2][2]*pc[2] + t_wc[2];
+                        const wr = applyFloorRotation([wx, wy, wz]);
+                        const wry = useYaw ? applyYawRotation(wr, manhattanYaw) : wr;
+                        mapPoints.push({x: wry[0], z: wry[2]});
+                        mapPointsByKf[kfId].push({x: wry[0], z: wry[2]});
+                        if (updateBounds) {
+                            if (wry[0] < minX) minX = wry[0];
+                            if (wry[0] > maxX) maxX = wry[0];
+                            if (wry[2] < minZ) minZ = wry[2];
+                            if (wry[2] > maxZ) maxZ = wry[2];
+                        }
+                    }
+                }
+            });
+
+            if (updateBounds) {
+                if (!isFinite(minX) || !isFinite(maxX)) {
+                    minX = 0; maxX = 1; minZ = 0; maxZ = 1;
+                }
+                baseBounds = { x_min: minX, x_max: maxX, z_min: minZ, z_max: maxZ };
+                viewBounds = baseBounds;
+            } else if (baseBounds) {
+                viewBounds = baseBounds;
+            }
+        }
+
+        function renderMap() {
+            if (!mapCtx) return;
+            const w = mapCanvas.width;
+            const h = mapCanvas.height;
+            mapCtx.clearRect(0, 0, w, h);
+            mapCtx.fillStyle = 'black';
+            mapCtx.fillRect(0, 0, w, h);
+
+            // ── BEV mesh mode: triangulated floor mesh as canvas background ────
+            if (bevMeshImg && bevMeshImg.complete && bevMeshImg.naturalWidth) {
+                const activeBounds = bevBoundsData || viewBounds || baseBounds || { x_min: 0, x_max: 1, z_min: 0, z_max: 1 };
+                const xMin2 = activeBounds.x_min || 0;
+                const xMax2 = activeBounds.x_max || 1;
+                const zMin2 = activeBounds.z_min || 0;
+                const zMax2 = activeBounds.z_max || 1;
+                const dx2 = xMax2 - xMin2 || 1;
+                const dz2 = zMax2 - zMin2 || 1;
+
+                mapCtx.save();
+                mapCtx.translate(viewsTranslateX, viewsTranslateY);
+                mapCtx.scale(viewsScale, viewsScale);
+                mapCtx.drawImage(bevMeshImg, 0, 0, w, h);
+
+                // ── Outer contour from triangulated mesh boundary ──────────────
+                if (bevContourData && bevContourData.length > 0) {
+                    mapCtx.strokeStyle = 'rgba(79, 195, 247, 0.9)';
+                    mapCtx.lineWidth = 2 / viewsScale;
+                    mapCtx.setLineDash([]);
+                    bevContourData.forEach(ring => {
+                        if (ring.length < 2) return;
+                        mapCtx.beginPath();
+                        ring.forEach((pt, i) => {
+                            const px = ((pt.x - xMin2) / dx2) * w;
+                            const py = h - ((pt.z - zMin2) / dz2) * h;
+                            if (i === 0) mapCtx.moveTo(px, py);
+                            else mapCtx.lineTo(px, py);
+                        });
+                        mapCtx.closePath();
+                        mapCtx.stroke();
+                    });
+                }
+
+                mapCtx.restore();
+
+                // ── Highlight active keyframe floor points on top (cyan) ───────
+                if (activeHighlightKfId && mapPointsByKf[activeHighlightKfId]) {
+                    mapCtx.fillStyle = 'rgba(0,200,255,0.85)';
+                    const cs = Math.max(2, Math.round(3 * mapScale));
+                    mapPointsByKf[activeHighlightKfId].forEach(p => {
+                        const bx = ((p.x - xMin2) / dx2) * w;
+                        const by = h - ((p.z - zMin2) / dz2) * h;
+                        const sx = bx * viewsScale + viewsTranslateX;
+                        const sy = by * viewsScale + viewsTranslateY;
+                        if (sx >= 0 && sx < w && sy >= 0 && sy < h)
+                            mapCtx.fillRect(sx - cs/2, sy - cs/2, cs, cs);
+                    });
+                }
+                return;
+            }
+
+            const bounds = viewBounds || baseBounds || { x_min: 0, x_max: 1, z_min: 0, z_max: 1 };
+            const xMin = bounds.x_min || 0;
+            const xMax = bounds.x_max || 1;
+            const zMin = bounds.z_min || 0;
+            const zMax = bounds.z_max || 1;
+            const dx = xMax - xMin || 1;
+            const dz = zMax - zMin || 1;
+
+            const cellSize = Math.max(2, Math.round(3 * mapScale));
+            const occupied = new Set();
+
+            for (let i = 0; i < mapPoints.length; i++) {
+                const p = mapPoints[i];
+                const baseX = ((p.x - xMin) / dx) * w;
+                const baseY = h - ((p.z - zMin) / dz) * h;
+                const screenX = baseX * viewsScale + viewsTranslateX;
+                const screenY = baseY * viewsScale + viewsTranslateY;
+                if (screenX < 0 || screenX >= w || screenY < 0 || screenY >= h) continue;
+                const gx = Math.floor(screenX / cellSize);
+                const gy = Math.floor(screenY / cellSize);
+                occupied.add(gx + ',' + gy);
+            }
+
+            // Close small gaps by expanding occupied cells (simple dilation)
+            const closeRadius = Math.max(1, Math.round(1 * mapScale));
+            const expanded = new Set(occupied);
+            if (closeRadius > 0) {
+                occupied.forEach(key => {
+                    const parts = key.split(',');
+                    const gx0 = parseInt(parts[0], 10);
+                    const gy0 = parseInt(parts[1], 10);
+                    for (let dy = -closeRadius; dy <= closeRadius; dy++) {
+                        for (let dx = -closeRadius; dx <= closeRadius; dx++) {
+                            const gx = gx0 + dx;
+                            const gy = gy0 + dy;
+                            expanded.add(gx + ',' + gy);
+                        }
+                    }
+                });
+            }
+
+            mapCtx.fillStyle = 'rgba(255,255,255,0.9)';
+            expanded.forEach(key => {
+                const parts = key.split(',');
+                const gx = parseInt(parts[0], 10);
+                const gy = parseInt(parts[1], 10);
+                const x = gx * cellSize;
+                const y = gy * cellSize;
+                mapCtx.fillRect(x, y, cellSize, cellSize);
+            });
+
+            if (activeHighlightKfId && mapPointsByKf[activeHighlightKfId]) {
+                const highlightOccupied = new Set();
+                const pts = mapPointsByKf[activeHighlightKfId];
+                for (let i = 0; i < pts.length; i++) {
+                    const p = pts[i];
+                    const baseX = ((p.x - xMin) / dx) * w;
+                    const baseY = h - ((p.z - zMin) / dz) * h;
+                    const screenX = baseX * viewsScale + viewsTranslateX;
+                    const screenY = baseY * viewsScale + viewsTranslateY;
+                    if (screenX < 0 || screenX >= w || screenY < 0 || screenY >= h) continue;
+                    const gx = Math.floor(screenX / cellSize);
+                    const gy = Math.floor(screenY / cellSize);
+                    highlightOccupied.add(gx + ',' + gy);
+                }
+
+                const highlightRadius = Math.max(1, Math.round(1 * mapScale));
+                const highlightExpanded = new Set(highlightOccupied);
+                highlightOccupied.forEach(key => {
+                    const parts = key.split(',');
+                    const gx0 = parseInt(parts[0], 10);
+                    const gy0 = parseInt(parts[1], 10);
+                    for (let dy = -highlightRadius; dy <= highlightRadius; dy++) {
+                        for (let dx = -highlightRadius; dx <= highlightRadius; dx++) {
+                            highlightExpanded.add((gx0 + dx) + ',' + (gy0 + dy));
+                        }
+                    }
+                });
+
+                mapCtx.fillStyle = 'rgba(0, 200, 255, 0.9)';
+                highlightExpanded.forEach(key => {
+                    const parts = key.split(',');
+                    const gx = parseInt(parts[0], 10);
+                    const gy = parseInt(parts[1], 10);
+                    const x = gx * cellSize;
+                    const y = gy * cellSize;
+                    mapCtx.fillRect(x, y, cellSize, cellSize);
+                });
+            }
+        }
+
+        function loadLegacyImage(type) {
+            const { place, building, floor } = currentSelection;
+            currentMode = 'map';
+            viewsPanels.style.display = 'none';
+            legacyView.style.display = 'block';
+
+            placeholder.style.display = 'none';
+            loading.classList.add('show');
+            legacyImageWrapper.style.display = 'none';
+            document.getElementById('zoom-controls-legacy').style.display = 'none';
+
+            const imageUrl = `/image/${place}/${building}/${floor}/${type}`;
+
+            legacyImage.onload = () => {
+                loading.classList.remove('show');
+                legacyImageWrapper.style.display = 'block';
+                document.getElementById('zoom-controls-legacy').style.display = 'flex';
+                showInfo(`${place} / ${building} / ${floor} - Floor Map (Scroll to zoom, drag to pan)`);
+                setTimeout(fitLegacyToContainer, 50);
+            };
+
+            legacyImage.onerror = () => {
+                loading.classList.remove('show');
+                placeholder.style.display = 'block';
+                showInfo('Failed to load image', true);
+            };
+
+            legacyImage.src = imageUrl;
+        }
+
+        function drawCameraMarkers() {
+            if (!mapCanvas.width || Object.keys(cameraData).length === 0) return;
+
+            cameraSvg.innerHTML = '';
+
+            const imgWidth = mapCanvas.width;
+            const imgHeight = mapCanvas.height;
+
+            // Calculate bounds — use BEV bounds when mesh is displayed for correct alignment
+            const bounds = (bevMeshImg && bevMeshImg.complete && bevMeshImg.naturalWidth && bevBoundsData)
+                ? bevBoundsData
+                : (viewBounds || baseBounds || { x_min: 0, x_max: 1, z_min: 0, z_max: 1 });
+            const xMin = bounds.x_min || 0;
+            const xMax = bounds.x_max || 1;
+            const zMin = bounds.z_min || 0;
+            const zMax = bounds.z_max || 1;
+
+            // Add padding (matching matplotlib)
+            const padding = 0.0;
+            const xRange = xMax - xMin;
+            const zRange = zMax - zMin;
+            const xMinPad = xMin - xRange * padding;
+            const xMaxPad = xMax + xRange * padding;
+            const zMinPad = zMin - zRange * padding;
+            const zMaxPad = zMax + zRange * padding;
+
+            const cameraIds = Object.keys(cameraData);
+            const step = Math.max(1, Math.floor(cameraIds.length / 100)); // Show max 100 cameras
+
+            for (let i = 0; i < cameraIds.length; i += step) {
+                const kfId = cameraIds[i];
+                const cam = cameraData[kfId];
+
+                // Convert world coordinates to image coordinates
+                // Note: Y is flipped because matplotlib's origin is bottom-left but image origin is top-left
+                const imgX = ((cam.x - xMinPad) / (xMaxPad - xMinPad)) * imgWidth;
+                const imgY = imgHeight - ((cam.z - zMinPad) / (zMaxPad - zMinPad)) * imgHeight;
+
+                // Direction (flip Z to match flipped Y axis)
+                const dirX = cam.dir_x;
+                const dirZ = -cam.dir_z;  // Flip Z direction
+
+                // Create triangle with base pointing in camera direction
+                const angle = Math.atan2(dirZ, dirX);
+                const size = 8 * poseScale;
+
+                // Triangle vertices: base (short edge) points forward, apex points backward
+                const points = [
+                    [imgX - Math.cos(angle) * size * 1.2, imgY - Math.sin(angle) * size * 1.2],  // apex (back)
+                    [imgX + Math.cos(angle) * size * 0.6 + Math.cos(angle + Math.PI/2) * size * 0.8,
+                     imgY + Math.sin(angle) * size * 0.6 + Math.sin(angle + Math.PI/2) * size * 0.8],  // base left
+                    [imgX + Math.cos(angle) * size * 0.6 + Math.cos(angle - Math.PI/2) * size * 0.8,
+                     imgY + Math.sin(angle) * size * 0.6 + Math.sin(angle - Math.PI/2) * size * 0.8]   // base right
+                ];
+
+                const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                polygon.setAttribute('points', points.map(p => p.join(',')).join(' '));
+                polygon.setAttribute('fill', '#ff4444');
+                polygon.setAttribute('stroke', '#000');
+                polygon.setAttribute('stroke-width', '1');
+                polygon.setAttribute('opacity', '0.7');
+                polygon.setAttribute('class', 'camera-marker');
+                polygon.setAttribute('data-kf-id', kfId);
+                polygon.setAttribute('data-img-x', imgX);
+                polygon.setAttribute('data-img-y', imgY);
+
+                polygon.addEventListener('mouseenter', () => onCameraHover(kfId, polygon));
+                polygon.addEventListener('mouseleave', () => onCameraLeave(polygon));
+
+                cameraSvg.appendChild(polygon);
+            }
+
+            updateCameraMarkers();
+        }
+
+        function updateCameraMarkers() {
+            const markers = cameraSvg.querySelectorAll('.camera-marker');
+            markers.forEach(marker => {
+                const imgX = parseFloat(marker.getAttribute('data-img-x'));
+                const imgY = parseFloat(marker.getAttribute('data-img-y'));
+
+                // Transform to screen coordinates
+                const screenX = imgX * viewsScale + viewsTranslateX;
+                const screenY = imgY * viewsScale + viewsTranslateY;
+
+                const kfId = marker.getAttribute('data-kf-id');
+                const cam = cameraData[kfId];
+                const dirX = cam.dir_x;
+                const dirZ = -cam.dir_z;  // Flip Z direction to match image coordinates
+                const angle = Math.atan2(dirZ, dirX);
+                const size = 8 * Math.min(2, Math.max(0.5, viewsScale)) * poseScale;
+
+                // Triangle with base (short edge) pointing forward
+                const points = [
+                    [screenX - Math.cos(angle) * size * 2.0, screenY - Math.sin(angle) * size * 2.0],  // apex (back)
+                    [screenX + Math.cos(angle) * size * 0.6 + Math.cos(angle + Math.PI/2) * size * 0.8,
+                     screenY + Math.sin(angle) * size * 0.6 + Math.sin(angle + Math.PI/2) * size * 0.8],
+                    [screenX + Math.cos(angle) * size * 0.6 + Math.cos(angle - Math.PI/2) * size * 0.8,
+                     screenY + Math.sin(angle) * size * 0.6 + Math.sin(angle - Math.PI/2) * size * 0.8]
+                ];
+
+                marker.setAttribute('points', points.map(p => p.join(',')).join(' '));
+            });
+        }
+
+        function onCameraHover(kfId, marker) {
+            const { place, building, floor } = currentSelection;
+            const cam = cameraData[kfId];
+
+            // Highlight marker
+            marker.classList.add('highlighted');
+            marker.setAttribute('fill', '#ffeb3b');
+            marker.setAttribute('opacity', '1');
+
+            // Scale up the marker
+            const currentPoints = marker.getAttribute('points').split(' ').map(p => p.split(',').map(Number));
+            const center = currentPoints.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0]);
+            center[0] /= 3;
+            center[1] /= 3;
+
+            const scaledPoints = currentPoints.map(p => [
+                center[0] + (p[0] - center[0]) * 1.5,
+                center[1] + (p[1] - center[1]) * 1.5
+            ]);
+            marker.setAttribute('points', scaledPoints.map(p => p.join(',')).join(' '));
+
+            // Show camera preview with mask overlay (composited on server)
+            cameraPreviewImg.src = `/keyframe_with_mask/${place}/${building}/${floor}/${kfId}`;
+            cameraPreviewImg.style.display = 'block';
+            cameraPlaceholder.style.display = 'none';
+
+            // Show camera info
+            document.getElementById('camera-id').textContent = kfId;
+            document.getElementById('camera-pos-x').textContent = cam.x.toFixed(3) + ' m';
+            document.getElementById('camera-pos-y').textContent = cam.y.toFixed(3) + ' m';
+            document.getElementById('camera-pos-z').textContent = cam.z.toFixed(3) + ' m';
+            cameraInfo.style.display = 'block';
+
+            // Highlight points belonging to this camera in the top view
+            highlightKeyframePoints(kfId);
+        }
+
+        function highlightKeyframePoints(kfId) {
+            activeHighlightKfId = String(kfId);
+            renderMap();
+            drawFloorplanMarkers();
+        }
+
+        function clearHighlightPoints() {
+            activeHighlightKfId = null;
+            renderMap();
+            drawFloorplanMarkers();
+        }
+
+        function onCameraLeave(marker) {
+            marker.classList.remove('highlighted');
+            marker.setAttribute('fill', '#ff4444');
+            marker.setAttribute('opacity', '0.7');
+
+            // Restore size by redrawing
+            updateCameraMarkers();
+
+            // Clear highlighted points
+            clearHighlightPoints();
+
+            // Hide mask overlay (keep camera image visible)
+            // document.getElementById('camera-mask-img').style.opacity = '0';
+        }
+
+        // Scale slider handler
+        function onScaleChange(e) {
+            const scaleValue = parseFloat(e.target.value);
+            scaleValueDisplay.textContent = scaleValue.toFixed(1) + 'x';
+
+            mapScale = scaleValue;
+            rebuildMapPoints(scaleValue, false);
+            renderMap();
+            updateCameraMarkers();
+        }
+
+        function onPoseScaleChange(e) {
+            poseScale = parseFloat(e.target.value);
+            poseScaleValueDisplay.textContent = poseScale.toFixed(1) + 'x';
+            updateCameraMarkers();
+        }
+
+        function onFloorplanPoseScaleChange(e) {
+            floorplanPoseScale = parseFloat(e.target.value);
+            floorplanPoseScaleValueDisplay.textContent = floorplanPoseScale.toFixed(1) + 'x';
+            drawFloorplanMarkers();
+        }
+
+        // ── BEV canvas toggle logic ────────────────────────────────────────────
+        // "Floor Map" button → scatter mode; "BEV Map" button → mesh canvas mode
+
+        function activateFloorMapMode() {
+            useBevMode = false;
+            btnViews.classList.add('active');
+            btnBev.classList.remove('active');
+            // Update canvas title
+            document.querySelector('#views-panels .view-title').textContent =
+                'Floormap - Hover over cameras to preview';
+            renderMap();
+            updateCameraMarkers();
+        }
+
+        function activateBevMode() {
+            const { place, building, floor } = currentSelection;
+            if (!place || !building || !floor) return;
+
+            if (bevMeshImg && bevMeshImg.complete && bevMeshImg.naturalWidth) {
+                // Mesh already loaded — switch immediately
+                useBevMode = true;
+                btnBev.classList.add('active');
+                btnViews.classList.remove('active');
+                document.querySelector('#views-panels .view-title').textContent =
+                    'BEV Mesh Rasterization — Gap-filled wall occupancy map';
+                renderMap();
+                updateCameraMarkers();
+                // Also show comparison panel below for the side-by-side view
+                bevPanel.style.display = 'block';
+                checkBevStatus();
+            } else {
+                // No mesh yet — check status and offer generation
+                bevPanel.style.display = 'block';
+                btnBev.classList.add('active');
+                checkBevStatus();
+            }
+        }
+
+        async function checkBevStatus() {
+            const { place, building, floor } = currentSelection;
+            if (!place || !building || !floor) return;
+            try {
+                const data = await fetch(`/api/bev_status/${place}/${building}/${floor}`).then(r => r.json());
+                if (data.exists) {
+                    bevLoading.style.display = 'none';
+                    bevGenerate.style.display = 'none';
+                    bevError.style.display = 'none';
+                    bevImage.src = `/image/${place}/${building}/${floor}/bev_compare?t=${Date.now()}`;
+                    bevImage.style.display = 'block';
+                    if (bevPollTimer) { clearInterval(bevPollTimer); bevPollTimer = null; }
+                    // If mesh not loaded yet, load it now
+                    if (!bevMeshImg || !bevMeshImg.complete || !bevMeshImg.naturalWidth) {
+                        const _img = new Image();
+                        _img.onload = () => {
+                            bevMeshImg = _img;
+                            renderMap();
+                            drawCameraMarkers();
+                            updateFloorplanWithBev(place, building, floor);
+                        };
+                        _img.src = `/image/${place}/${building}/${floor}/bev_mesh?t=${Date.now()}`;
+                    }
+                    fetch(`/api/bev_bounds/${place}/${building}/${floor}`)
+                        .then(r => r.json()).then(d => { if (d.bounds) bevBoundsData = d.bounds; }).catch(() => {});
+                    fetch(`/api/bev_contour/${place}/${building}/${floor}`)
+                        .then(r => r.json()).then(d => { if (Array.isArray(d)) { bevContourData = d; renderMap(); } }).catch(() => {});
+                } else if (data.status === 'running') {
+                    bevLoading.style.display = 'block';
+                    bevGenerate.style.display = 'none';
+                    bevImage.style.display = 'none';
+                    bevError.style.display = 'none';
+                    if (!bevPollTimer) bevPollTimer = setInterval(checkBevStatus, 3000);
+                } else if (data.status === 'error') {
+                    bevLoading.style.display = 'none';
+                    bevGenerate.style.display = 'block';
+                    bevImage.style.display = 'none';
+                    bevError.style.display = 'block';
+                    bevError.textContent = 'Generation failed: ' + data.error;
+                    if (bevPollTimer) { clearInterval(bevPollTimer); bevPollTimer = null; }
+                } else {
+                    bevLoading.style.display = 'none';
+                    bevGenerate.style.display = 'block';
+                    bevImage.style.display = 'none';
+                    bevError.style.display = 'none';
+                }
+            } catch (e) {
+                bevError.style.display = 'block';
+                bevError.textContent = 'Error: ' + e;
+            }
+        }
+
+        btnBev.addEventListener('click', () => {
+            // Toggle the BEV comparison panel (scatter vs mesh side-by-side)
+            const hidden = bevPanel.style.display === 'none' || bevPanel.style.display === '';
+            bevPanel.style.display = hidden ? 'block' : 'none';
+            btnBev.classList.toggle('active', hidden);
+            if (hidden) checkBevStatus();
+        });
+
+        btnGenerateBev.addEventListener('click', async () => {
+            const { place, building, floor } = currentSelection;
+            bevGenerate.style.display = 'none';
+            bevError.style.display = 'none';
+            bevLoading.style.display = 'block';
+            await fetch(`/api/generate_bev/${place}/${building}/${floor}`, { method: 'POST' });
+            if (!bevPollTimer) bevPollTimer = setInterval(checkBevStatus, 3000);
+        });
+
+        // Event listeners
+        placeSelect.addEventListener('change', onPlaceChange);
+        buildingSelect.addEventListener('change', onBuildingChange);
+        floorSelect.addEventListener('change', onFloorChange);
+
+        btnViews.addEventListener('click', () => {
+            loadImage('views');
+        });
+        mapScaleSlider.addEventListener('input', onScaleChange);
+        poseScaleSlider.addEventListener('input', onPoseScaleChange);
+        floorplanPoseScaleSlider.addEventListener('input', onFloorplanPoseScaleChange);
+
+        // Start
+        init();
+
+        window.addEventListener('resize', () => {
+            resizeFloorplanCanvas();
+        });
+
+        floorplanCanvas.addEventListener('mousemove', (e) => {
+            if (!floorplanMarkerCache.length) return;
+            const rect = floorplanCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            let hit = null;
+            for (let i = 0; i < floorplanMarkerCache.length; i++) {
+                const m = floorplanMarkerCache[i];
+                if (pointInTriangle(x, y, m.p0, m.p1, m.p2)) {
+                    hit = m.kfId;
+                    break;
+                }
+            }
+            if (hit) {
+                if (String(activeHighlightKfId) !== String(hit)) {
+                    activeHighlightKfId = String(hit);
+                    renderMap();
+                    drawFloorplanMarkers();
+                }
+            } else if (activeHighlightKfId) {
+                activeHighlightKfId = null;
+                renderMap();
+                drawFloorplanMarkers();
+            }
+        });
+
+        floorplanCanvas.addEventListener('mouseleave', () => {
+            if (activeHighlightKfId) {
+                activeHighlightKfId = null;
+                renderMap();
+                drawFloorplanMarkers();
+            }
+        });
+    </script>
+</body>
+</html>
