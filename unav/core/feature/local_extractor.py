@@ -172,14 +172,9 @@ class MASt3RExtractor:
             self.config.get("model_name", "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric")
         ).to(self.device)
         self.model.eval()
-        # Compile for faster inference (PyTorch 2.0+)
+        # torch.compile disabled (CUDA graph conflict with MASt3R position cache)
         try:
             import torch
-            if hasattr(torch, 'compile') and torch.cuda.is_available():
-                self.model = torch.compile(self.model, mode='reduce-overhead')
-                print(f"[MASt3R] torch.compile enabled (reduce-overhead)")
-        except Exception as e:
-            print(f"[MASt3R] torch.compile skipped: {e}")
         print(f"[MASt3R] Loaded on {self.device}")
 
     def match_pair(self, query_img_path, db_img_path):
