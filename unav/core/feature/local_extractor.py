@@ -164,12 +164,22 @@ class MASt3RExtractor:
         self._load_model()
 
     def _load_model(self):
-        sys.path.insert(0, '/home/unav/Desktop/mast3r')
+        import os
+        for _p in ['/workspace/mast3r', '/home/unav/Desktop/mast3r']:
+            if os.path.isdir(_p): sys.path.insert(0, _p)
         from mast3r.model import AsymmetricMASt3R
         self.model = AsymmetricMASt3R.from_pretrained(
             self.config.get("model_name", "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric")
         ).to(self.device)
         self.model.eval()
+        # Compile for faster inference (PyTorch 2.0+)
+        try:
+            import torch
+            if hasattr(torch, 'compile') and torch.cuda.is_available():
+                self.model = torch.compile(self.model, mode='reduce-overhead')
+                print(f"[MASt3R] torch.compile enabled (reduce-overhead)")
+        except Exception as e:
+            print(f"[MASt3R] torch.compile skipped: {e}")
         print(f"[MASt3R] Loaded on {self.device}")
 
     def match_pair(self, query_img_path, db_img_path):
@@ -194,7 +204,7 @@ class MASt3RExtractor:
 
         try:
             images = load_images([db_img_path, query_img_path], size=mast3r_size)
-            with torch.no_grad():
+            with torch.no_grad(), torch.cuda.amp.autocast():
                 output = inference([tuple(images)], self.model, self.device,
                                    batch_size=1, verbose=False)
 
@@ -280,8 +290,8 @@ class MASt3RExtractor:
         if not all_pairs:
             return [None] * len(db_img_paths)
 
-        # Batch inference
-        with torch.no_grad():
+        # Batch inference with AMP
+        with torch.no_grad(), torch.cuda.amp.autocast():
             output = inference(all_pairs, self.model, self.device,
                                batch_size=len(all_pairs), verbose=False)
 
