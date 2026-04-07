@@ -172,19 +172,32 @@ def mast3r_matching_and_pnp(
     ref_img_names = list(candidates_data.keys())[:max_candidates]
     grouped = {}
 
+    # Build DB image paths for batch matching
+    db_paths = []
+    db_names = []
     for name in ref_img_names:
+        candidate = candidates_data[name]
+        place, building, floor = candidate["map_key"]
+        db_img_path = f'/mnt/data/UNav-IO/temp/{place}/{building}/{floor}/perspectives/{name}'
+        db_paths.append(db_img_path)
+        db_names.append(name)
+
+    # Batch MASt3R inference (all pairs at once)
+    if hasattr(mast3r_matcher, 'match_batch') and len(db_paths) > 1:
+        batch_results = mast3r_matcher.match_batch(query_img_path, db_paths)
+    else:
+        batch_results = [mast3r_matcher.match_pair(query_img_path, p) for p in db_paths]
+
+    for idx, name in enumerate(db_names):
         candidate = candidates_data[name]
         map_key = candidate["map_key"]
         ref_frame = candidate["frame"]
 
-        # Find DB image path
-        place, building, floor = map_key
-        db_img_path = f'/mnt/data/UNav-IO/temp/{place}/{building}/{floor}/perspectives/{name}'
-        if not os.path.exists(db_img_path):
-            continue
-
-        # Run MASt3R matching
-        query_2d, db_2d, conf = mast3r_matcher.match_pair(query_img_path, db_img_path)
+        result = batch_results[idx]
+        if result is None:
+            query_2d, db_2d, conf = None, None, None
+        else:
+            query_2d, db_2d, conf = result
         if query_2d is None or len(query_2d) < min_inliers:
             continue
 

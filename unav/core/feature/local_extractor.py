@@ -243,6 +243,97 @@ class MASt3RExtractor:
             print(f"[MASt3R] match_pair error: {e}")
             return None, None, None
 
+
+    def match_batch(self, query_img_path, db_img_paths):
+        """
+        Run MASt3R on multiple (query, DB) pairs in one batch.
+
+        Returns:
+            list of (query_2d, db_2d, confidence) tuples, one per db_img_path.
+            None entries for failed pairs.
+        """
+        import torch
+        import os
+        for _p in ['/workspace/mast3r', '/home/unav/Desktop/mast3r']:
+            if os.path.isdir(_p): sys.path.insert(0, _p)
+        from mast3r.fast_nn import fast_reciprocal_NNs
+        from dust3r.inference import inference
+        from dust3r.utils.image import load_images
+
+        mast3r_size = self.config.get("mast3r_size", 512)
+        max_matches = self.config.get("max_matches", 2000)
+        subsample = self.config.get("subsample", 8)
+
+        # Build all pairs: each is (db, query)
+        valid_indices = []
+        all_pairs = []
+        for i, db_path in enumerate(db_img_paths):
+            if not os.path.exists(db_path):
+                continue
+            try:
+                imgs = load_images([db_path, query_img_path], size=mast3r_size)
+                all_pairs.append(tuple(imgs))
+                valid_indices.append(i)
+            except Exception:
+                continue
+
+        if not all_pairs:
+            return [None] * len(db_img_paths)
+
+        # Batch inference
+        with torch.no_grad():
+            output = inference(all_pairs, self.model, self.device,
+                               batch_size=len(all_pairs), verbose=False)
+
+        # Process each pair result
+        import cv2 as _cv2
+        results = [None] * len(db_img_paths)
+
+        for batch_idx, orig_idx in enumerate(valid_indices):
+            try:
+                desc1 = output['pred1']['desc'][batch_idx].detach()
+                desc2 = output['pred2']['desc'][batch_idx].detach()
+                conf1 = output['pred1']['conf'][batch_idx].detach().cpu().numpy()
+                conf2 = output['pred2']['conf'][batch_idx].detach().cpu().numpy()
+
+                matches_db, matches_query = fast_reciprocal_NNs(
+                    desc1, desc2, subsample_or_initxy1=subsample,
+                    device=self.device, dist='dot', block_size=2**13
+                )
+
+                if len(matches_db) < 6:
+                    continue
+
+                c1 = conf1[matches_db[:, 1].astype(int), matches_db[:, 0].astype(int)]
+                c2 = conf2[matches_query[:, 1].astype(int), matches_query[:, 0].astype(int)]
+                conf_scores = c1 * c2
+                top_k = min(max_matches, len(conf_scores))
+                top_idx = np.argsort(conf_scores)[-top_k:]
+
+                m_db = matches_db[top_idx].astype(np.float64)
+                m_query = matches_query[top_idx].astype(np.float64)
+                conf_out = conf_scores[top_idx]
+
+                # Scale to original resolution using cv2
+                db_path = db_img_paths[orig_idx]
+                _db_img = _cv2.imread(db_path)
+                db_h, db_w = _db_img.shape[:2]
+                m_h, m_w = desc1.shape[0], desc1.shape[1]
+                m_db[:, 0] *= db_w / m_w
+                m_db[:, 1] *= db_h / m_h
+
+                _q_img = _cv2.imread(query_img_path)
+                q_h, q_w = _q_img.shape[:2]
+                mq_h, mq_w = desc2.shape[0], desc2.shape[1]
+                m_query[:, 0] *= q_w / mq_w
+                m_query[:, 1] *= q_h / mq_h
+
+                results[orig_idx] = (m_query, m_db, conf_out)
+            except Exception:
+                continue
+
+        return results
+
     def dummy_extract(self, image):
         """No-op local feature extraction (MASt3R does joint matching)."""
         return None
