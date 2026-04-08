@@ -45,6 +45,12 @@ setup(
         "wandb>=0.19.11",
         "xformers>=0.0.28",
     ],
+    extras_require={
+        "mast3r": [
+            "mast3r @ git+https://github.com/naver/mast3r.git",
+            "poselib>=2.0.0",
+        ],
+    },
     include_package_data=True,  # Include non-Python files specified in MANIFEST.in or package_data
     package_data={
         "unav.core.third_party.SuperPoint_SuperGlue.extractors.SuperGluePretrainedNetwork.models.weights": ["*.pth"],
