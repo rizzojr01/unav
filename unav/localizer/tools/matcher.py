@@ -260,3 +260,149 @@ def mast3r_matching_and_pnp(
         "image_points": pnp_image_points,
         "object_points": pnp_object_points,
     }, block["results"]
+
+
+def mast3r_relpose_localization(
+    query_img_path: str,
+    candidates_data,
+    mast3r_matcher,
+    colmap_models,
+    transform_matrices,
+    min_inliers: int = 10,
+    max_candidates: int = 5,
+):
+    """
+    Map-free localization: MASt3R 3D pointmap + poselib in local frame + compose with ref world pose.
+    No colmap 3D points needed — only ref images with known poses.
+
+    Returns same signature as batch_local_matching_and_ransac():
+      (best_map_key, pnp_pairs, results)
+    """
+    import os, poselib
+    from scipy.spatial.transform import Rotation as R
+
+    ref_img_names = list(candidates_data.keys())[:max_candidates]
+    estimates = []
+
+    for name in ref_img_names:
+        candidate = candidates_data[name]
+        map_key = candidate["map_key"]
+        ref_frame = candidate["frame"]
+
+        place, building, floor = map_key
+        db_img_path = None
+        for base in ['/mnt/data/UNav-IO/temp', '/mnt/data/UNav-IO/data', '/data']:
+            p = f'{base}/{place}/{building}/{floor}/perspectives/{name}'
+            if os.path.exists(p):
+                db_img_path = p
+                break
+        if db_img_path is None:
+            continue
+
+        # MASt3R matching + get 3D pointmap
+        result = mast3r_matcher.match_pair_with_pts3d(query_img_path, db_img_path)
+        if result is None:
+            continue
+
+        query_2d, pts3d_matched, n_matches = result
+        if n_matches < min_inliers:
+            continue
+
+        # PnP in MASt3R local frame (no intrinsics needed)
+        import cv2 as _cv2
+        q_img = _cv2.imread(query_img_path)
+        qh, qw = q_img.shape[:2]
+        pp = np.array([qw / 2.0, qh / 2.0])
+
+        try:
+            pose, info = poselib.estimate_1D_radial_absolute_pose(
+                query_2d - pp, pts3d_matched.astype(np.float64),
+                {"max_reproj_error": 12.0, "max_iterations": 10000}
+            )
+        except Exception:
+            continue
+
+        n_inliers = int(np.sum(info['inliers'])) if 'inliers' in info else 0
+        if n_inliers < min_inliers:
+            continue
+
+        # Query camera center in MASt3R local frame
+        q_rot = R.from_quat([pose.q[1], pose.q[2], pose.q[3], pose.q[0]])
+        q_center_local = -q_rot.as_matrix().T @ np.array(pose.t)
+
+        # Transform to world via ref's colmap pose
+        ref_qvec = ref_frame['qvec']
+        ref_tvec = ref_frame['tvec']
+        ref_quat_xyzw = [ref_qvec[1], ref_qvec[2], ref_qvec[3], ref_qvec[0]]
+        ref_rot = R.from_quat(ref_quat_xyzw)
+        ref_rmat = ref_rot.as_matrix()
+        ref_center = -ref_rmat.T @ ref_tvec
+
+        q_center_world = ref_center + ref_rmat.T @ q_center_local
+
+        # Compose rotation for heading
+        q_rmat_world = ref_rmat.T @ q_rot.as_matrix()
+        q_rot_world = R.from_matrix(q_rmat_world)
+        q_quat_xyzw = q_rot_world.as_quat()
+        q_qvec_wxyz = np.array([q_quat_xyzw[3], q_quat_xyzw[0], q_quat_xyzw[1], q_quat_xyzw[2]])
+        q_tvec = -q_rmat_world @ q_center_world
+
+        estimates.append({
+            "world_pos": q_center_world,
+            "qvec": q_qvec_wxyz,
+            "tvec": q_tvec,
+            "n_inliers": n_inliers,
+            "map_key": map_key,
+            "ref_image_name": name,
+            "score": candidate.get("score", 0),
+        })
+
+    if not estimates:
+        return None, {"image_points": np.zeros((0, 2)), "object_points": np.zeros((0, 3))}, []
+
+    # Weighted average position
+    weights = np.array([e['n_inliers'] for e in estimates], dtype=float)
+    weights /= weights.sum()
+    avg_pos = sum(w * e['world_pos'] for w, e in zip(weights, estimates))
+
+    # Heading: outlier rejection + weighted circular mean
+    import math
+    headings = []
+    heading_weights = []
+    for est in estimates:
+        cam_fwd = R.from_quat([est['qvec'][1], est['qvec'][2], est['qvec'][3], est['qvec'][0]]).apply(np.array([0, 0, 1]))
+        fwd_world = est['world_pos'] + cam_fwd
+        tm = transform_matrices.get(est['map_key'])
+        if tm is None:
+            continue
+        xy_s = tm @ np.append(est['world_pos'], 1.0)
+        xy_f = tm @ np.append(fwd_world, 1.0)
+        vec = xy_f - xy_s
+        h = float(np.degrees(np.arctan2(vec[1], vec[0])) % 360)
+        headings.append(h)
+        heading_weights.append(est['n_inliers'])
+
+    # Best map key from majority
+    from collections import Counter
+    key_counts = Counter(tuple(e['map_key']) for e in estimates)
+    best_map_key = key_counts.most_common(1)[0][0]
+
+    # Build dummy pnp_pairs (for compatibility with downstream)
+    pnp_pairs = {"image_points": np.zeros((0, 2)), "object_points": np.zeros((0, 3))}
+
+    results = [{
+        "ref_image_name": e["ref_image_name"],
+        "map_key": e["map_key"],
+        "score": e["score"],
+        "inliers": e["n_inliers"],
+    } for e in estimates]
+
+    # Store pose for floorplan transform
+    best_est = max(estimates, key=lambda e: e['n_inliers'])
+    pnp_pairs["_relpose_qvec"] = best_est["qvec"]
+    pnp_pairs["_relpose_tvec"] = best_est["tvec"]
+    pnp_pairs["_relpose_avg_pos"] = avg_pos
+    pnp_pairs["_relpose_heading"] = headings
+    pnp_pairs["_relpose_heading_weights"] = heading_weights
+
+    return best_map_key, pnp_pairs, results

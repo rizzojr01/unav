@@ -337,6 +337,71 @@ class MASt3RExtractor:
 
         return results
 
+
+    def match_pair_with_pts3d(self, query_img_path, db_img_path):
+        """
+        MASt3R matching + return ref's 3D pointmap at matched locations.
+        For RelPose method (no colmap 3D needed).
+
+        Returns: (query_2d, pts3d_matched, n_matches) or None
+        """
+        import torch
+        import os
+        for _p in ['/workspace/mast3r', '/home/unav/Desktop/mast3r']:
+            if os.path.isdir(_p): sys.path.insert(0, _p)
+        from mast3r.fast_nn import fast_reciprocal_NNs
+        from dust3r.inference import inference
+        from dust3r.utils.image import load_images
+
+        mast3r_size = self.config.get("mast3r_size", 512)
+        max_matches = self.config.get("max_matches", 500)
+        subsample = self.config.get("subsample", 16)
+
+        try:
+            images = load_images([db_img_path, query_img_path], size=mast3r_size)
+            with torch.no_grad(), torch.cuda.amp.autocast():
+                output = inference([tuple(images)], self.model, self.device,
+                                   batch_size=1, verbose=False)
+
+            pts3d_ref = output['pred1']['pts3d'].squeeze(0).cpu().numpy()
+            desc1 = output['pred1']['desc'].squeeze(0).detach()
+            desc2 = output['pred2']['desc'].squeeze(0).detach()
+            conf1 = output['pred1']['conf'].squeeze(0).detach().cpu().numpy()
+            conf2 = output['pred2']['conf'].squeeze(0).detach().cpu().numpy()
+
+            matches_db, matches_query = fast_reciprocal_NNs(
+                desc1, desc2, subsample_or_initxy1=subsample,
+                device=self.device, dist='dot', block_size=2**13
+            )
+            if len(matches_db) < 6:
+                return None
+
+            c1 = conf1[matches_db[:, 1].astype(int), matches_db[:, 0].astype(int)]
+            c2 = conf2[matches_query[:, 1].astype(int), matches_query[:, 0].astype(int)]
+            top_k = min(max_matches, len(c1))
+            top_idx = np.argsort(c1 * c2)[-top_k:]
+
+            # 3D from ref pointmap
+            pts3d_matched = pts3d_ref[
+                matches_db[top_idx, 1].astype(int),
+                matches_db[top_idx, 0].astype(int)
+            ]
+
+            # Query 2D scaled to original
+            import cv2 as _cv2
+            m_query = matches_query[top_idx].astype(np.float64)
+            _q_img = _cv2.imread(query_img_path)
+            q_h, q_w = _q_img.shape[:2]
+            mq_h, mq_w = desc2.shape[0], desc2.shape[1]
+            m_query[:, 0] *= q_w / mq_w
+            m_query[:, 1] *= q_h / mq_h
+
+            return m_query, pts3d_matched.astype(np.float64), len(m_query)
+
+        except Exception as e:
+            print(f"[MASt3R] match_pair_with_pts3d error: {e}")
+            return None
+
     def dummy_extract(self, image):
         """No-op local feature extraction (MASt3R does joint matching)."""
         return None
