@@ -17,8 +17,7 @@ from unav.localizer.tools.retriever import (
     fetch_candidates_data
 )
 from unav.localizer.tools.matcher import batch_local_matching_and_ransac
-from unav.localizer.tools.matcher import mast3r_matching_and_pnp
-from unav.localizer.tools.matcher import mast3r_relpose_localization
+# MASt3R imports are lazy — only loaded when mast3r mode is active
 from unav.localizer.tools.pnp import (
     refine_pose_from_queue,
     transform_pose_to_floorplan,
@@ -194,7 +193,9 @@ class UNavLocalizer:
             results (list): Per-candidate match info.
         """
         if self.use_mast3r:
+            from unav.localizer.tools.matcher import mast3r_matching_and_pnp
             mast3r_cfg = self.config.feature_extraction_config["local_extractor_config"].get("mast3r", {})
+            from unav.localizer.tools.matcher import mast3r_matching_and_pnp
             mast3r_cfg = self.config.feature_extraction_config["local_extractor_config"].get("mast3r", {})
             return mast3r_matching_and_pnp(
                 query_img_path=query_img_path,
@@ -203,8 +204,8 @@ class UNavLocalizer:
                 colmap_models=self.all_colmap_models,
                 max_nn_dist=mast3r_cfg.get("max_nn_dist", 20.0),
                 min_inliers=self.config.localization_config.get("min_inliers", 6),
-                max_candidates=5,
-                early_stop_inliers=30,
+                max_candidates=10,
+                early_stop_inliers=80,
             )
         else:
             return batch_local_matching_and_ransac(
