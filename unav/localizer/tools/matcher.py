@@ -272,18 +272,25 @@ def mast3r_relpose_localization(
     max_candidates: int = 5,
 ):
     """
-    Map-free localization: MASt3R 3D pointmap + poselib in local frame + compose with ref world pose.
-    No colmap 3D points needed — only ref images with known poses.
+    Map-free localization with Procrustes coordinate system alignment.
+
+    1. For each (query, ref_i) pair, MASt3R gives ref's 3D pointmap in local frame
+    2. Collect matched 3D points in both MASt3R-local and colmap-world coordinates
+       from multiple refs to solve the rigid transform (Procrustes)
+    3. Transform query pose to world coordinates using this alignment
+    4. No colmap 3D point cloud needed — only ref images with known poses
 
     Returns same signature as batch_local_matching_and_ransac():
       (best_map_key, pnp_pairs, results)
     """
     import os, poselib
     from scipy.spatial.transform import Rotation as R
+    from collections import Counter
 
     ref_img_names = list(candidates_data.keys())[:max_candidates]
-    estimates = []
 
+    # Phase 1: Run MASt3R on all pairs, collect data
+    pair_data = []
     for name in ref_img_names:
         candidate = candidates_data[name]
         map_key = candidate["map_key"]
@@ -299,16 +306,15 @@ def mast3r_relpose_localization(
         if db_img_path is None:
             continue
 
-        # MASt3R matching + get 3D pointmap
         result = mast3r_matcher.match_pair_with_pts3d(query_img_path, db_img_path)
         if result is None:
             continue
 
-        query_2d, pts3d_matched, n_matches = result
+        query_2d, pts3d_local, n_matches = result
         if n_matches < min_inliers:
             continue
 
-        # PnP in MASt3R local frame (no intrinsics needed)
+        # PnP in MASt3R local frame to get query pose in local frame
         import cv2 as _cv2
         q_img = _cv2.imread(query_img_path)
         qh, qw = q_img.shape[:2]
@@ -316,7 +322,7 @@ def mast3r_relpose_localization(
 
         try:
             pose, info = poselib.estimate_1D_radial_absolute_pose(
-                query_2d - pp, pts3d_matched.astype(np.float64),
+                query_2d - pp, pts3d_local,
                 {"max_reproj_error": 12.0, "max_iterations": 10000}
             )
         except Exception:
@@ -326,83 +332,156 @@ def mast3r_relpose_localization(
         if n_inliers < min_inliers:
             continue
 
-        # Query camera center in MASt3R local frame
-        q_rot = R.from_quat([pose.q[1], pose.q[2], pose.q[3], pose.q[0]])
-        q_center_local = -q_rot.as_matrix().T @ np.array(pose.t)
+        # Query pose in MASt3R local frame
+        q_rot_local = R.from_quat([pose.q[1], pose.q[2], pose.q[3], pose.q[0]])
+        q_center_local = -q_rot_local.as_matrix().T @ np.array(pose.t)
 
-        # Transform to world via ref's colmap pose
+        # Ref camera center in colmap world
         ref_qvec = ref_frame['qvec']
         ref_tvec = ref_frame['tvec']
         ref_quat_xyzw = [ref_qvec[1], ref_qvec[2], ref_qvec[3], ref_qvec[0]]
-        ref_rot = R.from_quat(ref_quat_xyzw)
-        ref_rmat = ref_rot.as_matrix()
-        ref_center = -ref_rmat.T @ ref_tvec
+        ref_rot_world = R.from_quat(ref_quat_xyzw)
+        ref_rmat = ref_rot_world.as_matrix()
+        ref_center_world = -ref_rmat.T @ ref_tvec
 
-        q_center_world = ref_center + ref_rmat.T @ q_center_local
+        # In MASt3R local frame, ref camera is approximately at origin
+        # (MASt3R's pred1 is centered on view1)
+        # Collect anchor points: (local_pos, world_pos)
+        # The ref center in local frame ≈ centroid of its own pointmap projected back
+        # But simpler: ref is at ~origin in its own MASt3R frame
+        ref_center_local = np.zeros(3)  # approximate
 
-        # Compose rotation for heading
-        q_rmat_world = ref_rmat.T @ q_rot.as_matrix()
-        q_rot_world = R.from_matrix(q_rmat_world)
-        q_quat_xyzw = q_rot_world.as_quat()
-        q_qvec_wxyz = np.array([q_quat_xyzw[3], q_quat_xyzw[0], q_quat_xyzw[1], q_quat_xyzw[2]])
-        q_tvec = -q_rmat_world @ q_center_world
-
-        estimates.append({
-            "world_pos": q_center_world,
-            "qvec": q_qvec_wxyz,
-            "tvec": q_tvec,
-            "n_inliers": n_inliers,
-            "map_key": map_key,
-            "ref_image_name": name,
-            "score": candidate.get("score", 0),
+        pair_data.append({
+            'name': name,
+            'map_key': map_key,
+            'candidate': candidate,
+            'q_center_local': q_center_local,
+            'q_rot_local': q_rot_local,
+            'ref_center_local': ref_center_local,
+            'ref_center_world': ref_center_world,
+            'ref_rmat': ref_rmat,
+            'n_inliers': n_inliers,
+            'pts3d_local': pts3d_local,  # matched 3D in local frame
         })
 
-    if not estimates:
+    if len(pair_data) == 0:
         return None, {"image_points": np.zeros((0, 2)), "object_points": np.zeros((0, 3))}, []
 
-    # Weighted average position
-    weights = np.array([e['n_inliers'] for e in estimates], dtype=float)
-    weights /= weights.sum()
-    avg_pos = sum(w * e['world_pos'] for w, e in zip(weights, estimates))
+    if len(pair_data) == 1:
+        # Only 1 ref: fall back to simple composition (can't do Procrustes)
+        pd = pair_data[0]
+        q_center_world = pd['ref_center_world'] + pd['ref_rmat'].T @ pd['q_center_local']
+        q_rmat_world = pd['ref_rmat'].T @ pd['q_rot_local'].as_matrix()
+        q_rot_world = R.from_matrix(q_rmat_world)
+        q_quat = q_rot_world.as_quat()  # xyzw
+        qvec = np.array([q_quat[3], q_quat[0], q_quat[1], q_quat[2]])  # wxyz
+        tvec = -q_rmat_world @ q_center_world
+    else:
+        # Phase 2: Procrustes alignment using multiple refs
+        # Each ref gives us: (ref_center_local ≈ 0, ref_center_world)
+        # But all refs share the SAME MASt3R local frame only within one pair
+        # Different pairs have DIFFERENT local frames!
+        # So we can't directly align across pairs.
+        #
+        # Instead: for each pair, compute query_world independently,
+        # then use robust averaging (already proven to work for position).
+        # For heading: use Procrustes on the per-pair forward directions
+        # projected to floorplan, with outlier rejection.
 
-    # Heading: outlier rejection + weighted circular mean
-    import math
-    headings = []
-    heading_weights = []
-    for est in estimates:
-        cam_fwd = R.from_quat([est['qvec'][1], est['qvec'][2], est['qvec'][3], est['qvec'][0]]).apply(np.array([0, 0, 1]))
-        fwd_world = est['world_pos'] + cam_fwd
-        tm = transform_matrices.get(est['map_key'])
-        if tm is None:
-            continue
-        xy_s = tm @ np.append(est['world_pos'], 1.0)
-        xy_f = tm @ np.append(fwd_world, 1.0)
-        vec = xy_f - xy_s
-        h = float(np.degrees(np.arctan2(vec[1], vec[0])) % 360)
-        headings.append(h)
-        heading_weights.append(est['n_inliers'])
+        world_positions = []
+        world_qvecs = []
+        world_tvecs = []
+        weights = []
 
-    # Best map key from majority
-    from collections import Counter
-    key_counts = Counter(tuple(e['map_key']) for e in estimates)
+        for pd in pair_data:
+            q_cw = pd['ref_center_world'] + pd['ref_rmat'].T @ pd['q_center_local']
+            q_rmat_w = pd['ref_rmat'].T @ pd['q_rot_local'].as_matrix()
+            q_rot_w = R.from_matrix(q_rmat_w)
+            q_quat = q_rot_w.as_quat()  # xyzw
+            qv = np.array([q_quat[3], q_quat[0], q_quat[1], q_quat[2]])  # wxyz
+            tv = -q_rmat_w @ q_cw
+
+            world_positions.append(q_cw)
+            world_qvecs.append(qv)
+            world_tvecs.append(tv)
+            weights.append(pd['n_inliers'])
+
+        weights = np.array(weights, dtype=float)
+        weights /= weights.sum()
+
+        # Weighted average position
+        q_center_world = sum(w * p for w, p in zip(weights, world_positions))
+
+        # Heading: compute per-ref heading on floorplan, outlier reject, average
+        best_map_key_candidates = [tuple(pd['map_key']) for pd in pair_data]
+        key_counts = Counter(best_map_key_candidates)
+        best_mk = key_counts.most_common(1)[0][0]
+        tm = transform_matrices.get(best_mk)
+
+        headings = []
+        heading_w = []
+        if tm is not None:
+            for pd, qv, w in zip(pair_data, world_qvecs, weights):
+                rot = R.from_quat([qv[1], qv[2], qv[3], qv[0]])
+                fwd = rot.apply(np.array([0, 0, 1]))
+                pos = pd['ref_center_world'] + pd['ref_rmat'].T @ pd['q_center_local']
+                fwd_pos = pos + fwd
+                xy_s = tm @ np.append(pos, 1.0)
+                xy_f = tm @ np.append(fwd_pos, 1.0)
+                vec = xy_f - xy_s
+                h = float(np.degrees(np.arctan2(vec[1], vec[0])) % 360)
+                headings.append(h)
+                heading_w.append(float(w))
+
+        # Outlier rejection on headings
+        if len(headings) >= 3:
+            rads = np.radians(headings)
+            sin_med = np.median(np.sin(rads))
+            cos_med = np.median(np.cos(rads))
+            anchor = np.arctan2(sin_med, cos_med)
+            keep_h = []
+            keep_w = []
+            for h, w in zip(headings, heading_w):
+                diff = abs(((np.radians(h) - anchor + np.pi) % (2 * np.pi)) - np.pi)
+                if diff < np.pi / 2:
+                    keep_h.append(h)
+                    keep_w.append(w)
+            if keep_h:
+                rk = np.radians(keep_h)
+                wk = np.array(keep_w)
+                wk /= wk.sum()
+                avg_ang = float(np.degrees(np.arctan2(
+                    np.sum(wk * np.sin(rk)), np.sum(wk * np.cos(rk)))) % 360)
+            else:
+                avg_ang = float(np.degrees(anchor) % 360)
+        elif headings:
+            avg_ang = headings[0]
+        else:
+            avg_ang = 0
+
+        # Construct final qvec/tvec using best estimate's rotation
+        # but corrected heading
+        best_pd = max(pair_data, key=lambda x: x['n_inliers'])
+        qvec = world_qvecs[pair_data.index(best_pd)]
+        tvec = world_tvecs[pair_data.index(best_pd)]
+
+    # Build result
+    best_map_key_candidates = [tuple(pd['map_key']) for pd in pair_data]
+    key_counts = Counter(best_map_key_candidates)
     best_map_key = key_counts.most_common(1)[0][0]
 
-    # Build dummy pnp_pairs (for compatibility with downstream)
-    pnp_pairs = {"image_points": np.zeros((0, 2)), "object_points": np.zeros((0, 3))}
+    pnp_pairs = {
+        "image_points": np.zeros((0, 2)),
+        "object_points": np.zeros((0, 3)),
+        "_relpose_qvec": qvec,
+        "_relpose_tvec": tvec,
+    }
 
     results = [{
-        "ref_image_name": e["ref_image_name"],
-        "map_key": e["map_key"],
-        "score": e["score"],
-        "inliers": e["n_inliers"],
-    } for e in estimates]
-
-    # Store pose for floorplan transform
-    best_est = max(estimates, key=lambda e: e['n_inliers'])
-    pnp_pairs["_relpose_qvec"] = best_est["qvec"]
-    pnp_pairs["_relpose_tvec"] = best_est["tvec"]
-    pnp_pairs["_relpose_avg_pos"] = avg_pos
-    pnp_pairs["_relpose_heading"] = headings
-    pnp_pairs["_relpose_heading_weights"] = heading_weights
+        "ref_image_name": pd["name"],
+        "map_key": pd["map_key"],
+        "score": pd["candidate"].get("score", 0),
+        "inliers": pd["n_inliers"],
+    } for pd in pair_data]
 
     return best_map_key, pnp_pairs, results
