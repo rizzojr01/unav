@@ -373,34 +373,48 @@ class UNavLocalizer:
                 "timings": timings
             }
 
-        # 5. Pose refinement (multi-frame queue) for this region only
-        map_queue = refinement_queue.get(best_map_key, {
-            "pairs": [], "initial_poses": [], "pps": []
-        })
-        try:
-            refine_result = self.multi_frame_pose_refine(pnp_pairs, query_img.shape, map_queue)
-        except Exception as e:
-            return {
-                "success": False,
-                "reason": f"Exception during multi-frame pose refinement: {e}",
-                "stage": "multi_frame_pose_refine",
-                "top_candidates": top_candidates,
-                "best_map_key": best_map_key,
-                "timings": timings
+        # 5. Pose refinement
+        if self.use_mast3r and "_relpose_qvec" in pnp_pairs:
+            # RelPose: pose already computed, skip PnP refinement
+            refine_result = {
+                "success": True,
+                "qvec": pnp_pairs["_relpose_qvec"],
+                "tvec": pnp_pairs["_relpose_tvec"],
+                "n_frames": 1,
+                "new_refinement_queue": refinement_queue.get(best_map_key, {
+                    "pairs": [], "initial_poses": [], "pps": []
+                }),
             }
-        t1 = time.time()
-        timings['multi_frame_pose_refine'] = t1 - t0
-        t0 = t1
+            timings['multi_frame_pose_refine'] = 0
+        else:
+            # PnP-based refinement (multi-frame queue)
+            map_queue = refinement_queue.get(best_map_key, {
+                "pairs": [], "initial_poses": [], "pps": []
+            })
+            try:
+                refine_result = self.multi_frame_pose_refine(pnp_pairs, query_img.shape, map_queue)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "reason": f"Exception during multi-frame pose refinement: {e}",
+                    "stage": "multi_frame_pose_refine",
+                    "top_candidates": top_candidates,
+                    "best_map_key": best_map_key,
+                    "timings": timings
+                }
+            t1 = time.time()
+            timings['multi_frame_pose_refine'] = t1 - t0
+            t0 = t1
 
-        if not refine_result["success"]:
-            return {
-                "success": False,
-                "reason": refine_result.get("reason", "Pose refinement failed."),
-                "stage": "multi_frame_pose_refine",
-                "top_candidates": top_candidates,
-                "best_map_key": best_map_key,
-                "timings": timings
-            }
+            if not refine_result["success"]:
+                return {
+                    "success": False,
+                    "reason": refine_result.get("reason", "Pose refinement failed."),
+                    "stage": "multi_frame_pose_refine",
+                    "top_candidates": top_candidates,
+                    "best_map_key": best_map_key,
+                    "timings": timings
+                }
 
         # 6. Transform output pose to floorplan coordinates if possible
         colmap_pose = {"qvec": refine_result.get("qvec"), "tvec": refine_result.get("tvec")}
