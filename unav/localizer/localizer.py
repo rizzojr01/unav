@@ -195,15 +195,30 @@ class UNavLocalizer:
         """
         if self.use_mast3r:
             mast3r_cfg = self.config.feature_extraction_config["local_extractor_config"].get("mast3r", {})
-            return mast3r_relpose_localization(
+            # Try PnP first (accurate heading), fallback to RelPose (no colmap 3D needed)
+            mast3r_cfg = self.config.feature_extraction_config["local_extractor_config"].get("mast3r", {})
+            result = mast3r_matching_and_pnp(
                 query_img_path=query_img_path,
                 candidates_data=candidates_data,
                 mast3r_matcher=self.local_matcher,
                 colmap_models=self.all_colmap_models,
-                transform_matrices=self.transform_matrices,
+                max_nn_dist=mast3r_cfg.get("max_nn_dist", 20.0),
                 min_inliers=self.config.localization_config.get("min_inliers", 6),
                 max_candidates=5,
+                early_stop_inliers=30,
             )
+            # If PnP failed, try RelPose
+            if result[0] is None:
+                result = mast3r_relpose_localization(
+                    query_img_path=query_img_path,
+                    candidates_data=candidates_data,
+                    mast3r_matcher=self.local_matcher,
+                    colmap_models=self.all_colmap_models,
+                    transform_matrices=self.transform_matrices,
+                    min_inliers=self.config.localization_config.get("min_inliers", 6),
+                    max_candidates=5,
+                )
+            return result
         else:
             return batch_local_matching_and_ransac(
                 local_feat_dict,
