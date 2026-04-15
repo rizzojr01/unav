@@ -4,9 +4,18 @@ UNav is a modular visual navigation framework for indoor mapping, localization, 
 
 ## Install
 
+For the full UNav core package:
+
 ```sh
 pip install git+https://github.com/ai4ce/unav.git
 ```
+
+For self-serve mapping runner dependencies, use the dedicated `unav-run` lockfiles:
+
+- [`unav-run/pyproject.toml`](https://github.com/endeleze/unav-run/blob/main/pyproject.toml)
+- [`unav-run/poetry.lock`](https://github.com/endeleze/unav-run/blob/main/poetry.lock)
+
+Legacy full-core requirements are explicitly located at [`ai4ce/unav/requirements.txt`](https://github.com/ai4ce/unav/blob/main/requirements.txt).
 
 ## Self-Serve Mapping Documentation (External Partner)
 

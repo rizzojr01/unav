@@ -8,16 +8,26 @@
 
 ## Software Prerequisites
 
-- Python 3.8+
+- Python 3.10
+- Poetry for Python dependency installation and lockfile reproducibility
 - Docker (for `stella_vslam_dense`)
 - COLMAP on `PATH` (for triangulation)
 - `labelme` (for map annotation)
 
-Install Python deps:
+Install the mapping runner dependencies from the dedicated `unav-run` repo:
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/endeleze/unav-run.git
+cd unav-run
+poetry install
+poetry run pip install --no-deps git+https://github.com/ai4ce/unav.git
 ```
+
+Dependency files:
+
+- [`unav-run/pyproject.toml`](https://github.com/endeleze/unav-run/blob/main/pyproject.toml) lists direct mapping runner dependencies.
+- [`unav-run/poetry.lock`](https://github.com/endeleze/unav-run/blob/main/poetry.lock) locks nested dependency versions.
+- Legacy UNav core requirements live at [`ai4ce/unav/requirements.txt`](https://github.com/ai4ce/unav/blob/main/requirements.txt); use this only when installing the full UNav core repo directly.
 
 ## Build SLAM Docker Image
 
