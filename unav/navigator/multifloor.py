@@ -5,7 +5,7 @@ import networkx as nx
 from typing import Dict, List, Tuple, Any, Optional
 
 from unav.navigator.pathfinder import PathFinder
-from unav.navigator.snap import snap_inside_walkable
+from unav.navigator.snap import snap_inside_walkable, snap_toward_nearest_waypoint
 from unav.config import UNavNavigationConfig
 
 class FacilityNavigator:
@@ -163,7 +163,8 @@ class FacilityNavigator:
         pf0 = self.pf_map[start_key]
         # Snap starting point into walkable region if needed
         scale = self.scales.get(start_key, 1.0)
-        start_xy = snap_inside_walkable(start_xy, pf0.walkable_union)
+        nav_coords = [pf0.nodes[nid] for nid in pf0.nav_ids]
+        start_xy = snap_toward_nearest_waypoint(start_xy, pf0.walkable_union, nav_coords)
 
         # Add temporary virtual node for the real start point
         virt = "VIRT"
