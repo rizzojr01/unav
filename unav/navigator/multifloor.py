@@ -161,10 +161,11 @@ class FacilityNavigator:
         start_key = (start_place, start_building, start_floor)
         target_key = (dest_place, dest_building, dest_floor, dest_id)
         pf0 = self.pf_map[start_key]
-        # Snap starting point into walkable region if needed
+        # Snap starting point into walkable region, then onto route network
         scale = self.scales.get(start_key, 1.0)
         nav_coords = [pf0.nodes[nid] for nid in pf0.nav_ids]
         start_xy = snap_toward_nearest_waypoint(start_xy, pf0.walkable_union, nav_coords)
+        start_xy = pf0.snap_to_route(start_xy)
 
         # Add temporary virtual node for the real start point
         virt = "VIRT"
@@ -220,3 +221,10 @@ class FacilityNavigator:
             "path_descriptions": descriptions,
             "total_cost": cost
         }
+    def get_floor_route_segments(self, place: str, building: str, floor: str):
+        """Return route-network segments for one floor as [{from, to}] dicts."""
+        key = (place, building, floor)
+        pf = self.pf_map.get(key)
+        if pf is None:
+            return []
+        return pf.get_route_segments()

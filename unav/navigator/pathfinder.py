@@ -1,8 +1,8 @@
 import json
 import math
 import networkx as nx
-from shapely.geometry import Polygon as ShapelyPolygon, Point, LineString
-from shapely.ops import unary_union
+from shapely.geometry import Polygon as ShapelyPolygon, Point, LineString, MultiLineString
+from shapely.ops import unary_union, nearest_points
 from typing import Dict, List, Tuple, Any
 
 class PathFinder:
@@ -37,6 +37,9 @@ class PathFinder:
 
         # Visibility graph
         self.G = nx.DiGraph()
+
+        # Route network (MultiLineString of all graph edges) for snap-to-route
+        self.route_network = None
 
         # Build graph from JSON
         self._load_data(json_path)
@@ -141,6 +144,47 @@ class PathFinder:
                 if self._visible(self.nodes[nid], self.nodes[did]):
                     w = self._euclidean(self.nodes[nid], self.nodes[did])
                     self.G.add_edge(nid, did, weight=w)
+        # Build route network: deduplicated line segments from all graph edges
+        seen = set()
+        segments = []
+        for u, v in self.G.edges():
+            key = (min(u, v), max(u, v))
+            if key not in seen:
+                seen.add(key)
+                segments.append((self.nodes[u], self.nodes[v]))
+        self.route_network = MultiLineString(segments) if segments else None
+
+
+    def snap_to_route(self, point, threshold=None):
+        """
+        Snap a point to the nearest location on the route network (graph edges).
+
+        Args:
+            point: (x, y) query coordinate.
+            threshold: Only snap when distance to network is within this many pixels.
+
+        Returns:
+            (x, y) snapped coordinate on the nearest graph edge.
+        """
+        if self.route_network is None or self.route_network.is_empty:
+            return point
+        p = Point(*point)
+        if threshold is not None and p.distance(self.route_network) > threshold:
+            return point
+        snapped, _ = nearest_points(self.route_network, p)
+        return (snapped.x, snapped.y)
+
+    def get_route_segments(self):
+        """Return all route-network edges as [{from, to}] dicts for frontend rendering."""
+        seen = set()
+        segs = []
+        for u, v in self.G.edges():
+            key = (min(u, v), max(u, v))
+            if key not in seen:
+                seen.add(key)
+                p1, p2 = self.nodes[u], self.nodes[v]
+                segs.append({"from": list(p1), "to": list(p2)})
+        return segs
 
     def find_path(self, start_id: int, dest_id: int) -> Dict[str, Any]:
         """
