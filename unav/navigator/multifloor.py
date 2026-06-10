@@ -133,7 +133,8 @@ class FacilityNavigator:
         dest_place: str,
         dest_building: str,
         dest_floor: str,
-        dest_id: int
+        dest_id: int,
+        force_walkable: bool = True,
     ) -> Dict[str, Any]:
         """
         Compute shortest path from start coordinate to a destination node,
@@ -164,7 +165,8 @@ class FacilityNavigator:
         # Snap starting point into walkable region if needed
         scale = self.scales.get(start_key, 1.0)
         nav_coords = [pf0.nodes[nid] for nid in pf0.nav_ids]
-        start_xy = snap_toward_nearest_waypoint(start_xy, pf0.walkable_union, nav_coords)
+        if force_walkable:
+            start_xy = snap_toward_nearest_waypoint(start_xy, pf0.walkable_union, nav_coords)
 
         # Add temporary virtual node for the real start point
         virt = "VIRT"
