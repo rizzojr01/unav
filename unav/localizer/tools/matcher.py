@@ -154,6 +154,7 @@ def mast3r_matching_and_pnp(
     min_inliers: int = 6,
     max_candidates: int = 10,
     early_stop_inliers: int = 50,
+    pp=None,
 ):
     """
     MASt3R dense matching replacement for batch_local_matching_and_ransac().
@@ -318,11 +319,11 @@ def mast3r_relpose_localization(
         import cv2 as _cv2
         q_img = _cv2.imread(query_img_path)
         qh, qw = q_img.shape[:2]
-        pp = np.array([qw / 2.0, qh / 2.0])
+        _pp = pp if pp is not None else np.array([qw / 2.0, qh / 2.0])
 
         try:
             pose, info = poselib.estimate_1D_radial_absolute_pose(
-                query_2d - pp, pts3d_local,
+                query_2d - _pp, pts3d_local,
                 {"max_reproj_error": 12.0, "max_iterations": 10000}
             )
         except Exception:

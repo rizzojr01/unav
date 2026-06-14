@@ -177,7 +177,7 @@ class UNavLocalizer:
         )
 
     def batch_local_matching_and_ransac(self, local_feat_dict, candidates_data,
-                                        query_img_path=None):
+                                        query_img_path=None, pp=None):
         """
         Perform local matching and geometric verification in batch.
         Dispatches to MASt3R or SuperPoint+LightGlue based on config.
@@ -206,6 +206,7 @@ class UNavLocalizer:
                 min_inliers=self.config.localization_config.get("min_inliers", 6),
                 max_candidates=10,
                 early_stop_inliers=80,
+                pp=pp,
             )
         else:
             return batch_local_matching_and_ransac(
@@ -217,7 +218,7 @@ class UNavLocalizer:
                 device=self.device
             )
 
-    def multi_frame_pose_refine(self, pnp_pairs, img_shape, refinement_queue):
+    def multi_frame_pose_refine(self, pnp_pairs, img_shape, refinement_queue, pp=None):
         """
         Multi-frame pose refinement (PnP filtering + queue update).
 
@@ -233,7 +234,8 @@ class UNavLocalizer:
             current_pairs=pnp_pairs,
             current_img_shape=img_shape,
             refinement_queue=refinement_queue,
-            max_history=self.config.localization_config.get("max_history", 5)
+            max_history=self.config.localization_config.get("max_history", 5),
+            pp=pp,
         )
 
     def transform_pose_to_floorplan(self, qvec, tvec, transform_matrix):
@@ -346,9 +348,11 @@ class UNavLocalizer:
                 _tmp = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
                 cv2.imwrite(_tmp.name, query_img)
                 query_img_path = _tmp.name
+            pp = kwargs.get("pp", None)
             best_map_key, pnp_pairs, results = self.batch_local_matching_and_ransac(
                 local_feat_dict, candidates_data,
-                query_img_path=query_img_path
+                query_img_path=query_img_path,
+                pp=pp,
             )
             # Clean up temp file
             if self.use_mast3r and 'query_img_path' not in kwargs and query_img_path:
@@ -395,7 +399,7 @@ class UNavLocalizer:
                 "pairs": [], "initial_poses": [], "pps": []
             })
             try:
-                refine_result = self.multi_frame_pose_refine(pnp_pairs, query_img.shape, map_queue)
+                refine_result = self.multi_frame_pose_refine(pnp_pairs, query_img.shape, map_queue, pp=pp)
             except Exception as e:
                 return {
                     "success": False,
@@ -459,6 +463,7 @@ class UNavLocalizer:
             "n_frames": refine_result.get("n_frames"),
             "refinement_queue": updated_queue,
             "best_map_key": best_map_key,
-            "timings": timings
+            "timings": timings,
+            "pnp_debug": refine_result.get("pnp_debug"),
         }
         return output

@@ -8,7 +8,8 @@ def refine_pose_from_queue(
     current_pairs: Dict[str, np.ndarray],
     current_img_shape: Tuple[int, int, int],
     refinement_queue: Dict[str, list],
-    max_history: int = 5
+    max_history: int = 5,
+    pp: np.ndarray = None,
 ) -> Dict[str, Any]:
     """
     Multi-frame pose refinement using a sliding window of recent frames (with implicit pose optimization).
@@ -36,7 +37,8 @@ def refine_pose_from_queue(
         }
     """
     H, W = current_img_shape[:2]
-    pp = np.array([W / 2, H / 2])  # Image center as principal point
+    if pp is None:
+        pp = np.array([W / 2, H / 2])
 
     # --- Require enough matches
     if len(current_pairs["image_points"]) < 6:
