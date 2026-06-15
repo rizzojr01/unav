@@ -1,3 +1,5 @@
+import os
+import sys
 import numpy as np
 import torch
 import cv2
@@ -5,6 +7,51 @@ import cv2
 from unav.core.third_party.SuperPoint_SuperGlue.base_model import dynamic_load
 from unav.core.third_party.SuperPoint_SuperGlue import extractors, matchers
 from unav.core.third_party.LightGlue.lightglue import LightGlue
+
+
+def _ensure_mast3r_importable():
+    """
+    Make MASt3R importable across installations.
+
+    Resolution order:
+      1. Already importable (e.g. ``pip install unav[mast3r]`` or editable install)
+      2. ``MAST3R_PATH`` environment variable (absolute path to mast3r repo root)
+      3. Common fallback locations (Docker ``/workspace/mast3r``, legacy
+         ``~/Desktop/mast3r``) — kept for backward compatibility only.
+
+    Call this before any ``from mast3r.xxx import ...`` statement. It is
+    idempotent and cheap to call repeatedly.
+    """
+    try:
+        import mast3r  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    candidates = []
+    env_path = os.environ.get("MAST3R_PATH")
+    if env_path:
+        candidates.append(env_path)
+    # Backward-compat fallbacks (Docker image + legacy UNav host layout)
+    candidates.extend([
+        "/workspace/mast3r",
+        os.path.expanduser("~/Desktop/mast3r"),
+    ])
+
+    for p in candidates:
+        if p and os.path.isdir(p) and p not in sys.path:
+            sys.path.insert(0, p)
+            try:
+                import mast3r  # noqa: F401
+                return
+            except ImportError:
+                continue
+
+    raise ImportError(
+        "Could not import 'mast3r'. Install with `pip install unav[mast3r]`, "
+        "or set the MAST3R_PATH environment variable to the mast3r repo root."
+    )
+
 
 class Superpoint:
     """
@@ -164,9 +211,7 @@ class MASt3RExtractor:
         self._load_model()
 
     def _load_model(self):
-        import os
-        for _p in ['/workspace/mast3r', '/home/unav/Desktop/mast3r']:
-            if os.path.isdir(_p): sys.path.insert(0, _p)
+        _ensure_mast3r_importable()
         from mast3r.model import AsymmetricMASt3R
         self.model = AsymmetricMASt3R.from_pretrained(
             self.config.get("model_name", "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric")
@@ -186,7 +231,7 @@ class MASt3RExtractor:
             Or (None, None, None) on failure.
         """
         import torch
-        sys.path.insert(0, '/home/unav/Desktop/mast3r')
+        _ensure_mast3r_importable()
         from mast3r.fast_nn import fast_reciprocal_NNs
         from dust3r.inference import inference
         from dust3r.utils.image import load_images
@@ -256,9 +301,7 @@ class MASt3RExtractor:
             None entries for failed pairs.
         """
         import torch
-        import os
-        for _p in ['/workspace/mast3r', '/home/unav/Desktop/mast3r']:
-            if os.path.isdir(_p): sys.path.insert(0, _p)
+        _ensure_mast3r_importable()
         from mast3r.fast_nn import fast_reciprocal_NNs
         from dust3r.inference import inference
         from dust3r.utils.image import load_images
@@ -346,9 +389,7 @@ class MASt3RExtractor:
         Returns: (query_2d, pts3d_matched, n_matches) or None
         """
         import torch
-        import os
-        for _p in ['/workspace/mast3r', '/home/unav/Desktop/mast3r']:
-            if os.path.isdir(_p): sys.path.insert(0, _p)
+        _ensure_mast3r_importable()
         from mast3r.fast_nn import fast_reciprocal_NNs
         from dust3r.inference import inference
         from dust3r.utils.image import load_images

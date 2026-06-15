@@ -195,8 +195,12 @@ class UNavLocalizer:
         if self.use_mast3r:
             from unav.localizer.tools.matcher import mast3r_matching_and_pnp
             mast3r_cfg = self.config.feature_extraction_config["local_extractor_config"].get("mast3r", {})
-            from unav.localizer.tools.matcher import mast3r_matching_and_pnp
-            mast3r_cfg = self.config.feature_extraction_config["local_extractor_config"].get("mast3r", {})
+            # DB images may live under the temp (working) tree or the final
+            # (published) tree — search temp first so in-progress maps work.
+            data_roots = [
+                getattr(self.config, "data_temp_root", None),
+                getattr(self.config, "data_final_root", None),
+            ]
             return mast3r_matching_and_pnp(
                 query_img_path=query_img_path,
                 candidates_data=candidates_data,
@@ -207,6 +211,7 @@ class UNavLocalizer:
                 max_candidates=10,
                 early_stop_inliers=80,
                 pp=pp,
+                data_roots=[r for r in data_roots if r],
             )
         else:
             return batch_local_matching_and_ransac(

@@ -1,8 +1,36 @@
+import os
 import torch
 import numpy as np
 from unav.core.feature_filter import match_query_to_database, ransac_filter
 
-from typing import Dict, Any, Callable, List, Tuple
+from typing import Dict, Any, Callable, List, Tuple, Iterable, Optional
+
+
+# Docker-image default (the /data mount); host installs should pass their own
+# list of roots via the ``data_roots`` argument of the MASt3R helpers below.
+DEFAULT_DB_IMAGE_ROOTS: Tuple[str, ...] = ("/data",)
+
+
+def _resolve_db_image_path(
+    data_roots: Iterable[str],
+    place: str,
+    building: str,
+    floor: str,
+    name: str,
+) -> Optional[str]:
+    """
+    Locate the on-disk DB image for a retrieval candidate.
+
+    ``data_roots`` are tried in order; the first existing path wins.
+    Returns ``None`` if the image is not found under any root.
+    """
+    for base in data_roots:
+        if not base:
+            continue
+        p = os.path.join(base, place, building, floor, "perspectives", name)
+        if os.path.exists(p):
+            return p
+    return None
 
 def batch_local_matching_and_ransac(
     query_local_feat: Dict[str, Any],
@@ -155,6 +183,7 @@ def mast3r_matching_and_pnp(
     max_candidates: int = 10,
     early_stop_inliers: int = 50,
     pp=None,
+    data_roots: Optional[Iterable[str]] = None,
 ):
     """
     MASt3R dense matching replacement for batch_local_matching_and_ransac().
@@ -164,22 +193,34 @@ def mast3r_matching_and_pnp(
       2. NN lookup: db_2d → colmap points2D_xy → world points3D_xyz
       3. Collect (image_points, object_points) for PnP
 
+    Args:
+        data_roots: Ordered list of root directories under which the DB
+            images live (``<root>/<place>/<building>/<floor>/perspectives/...``).
+            Typically ``[cfg.data_temp_root, cfg.data_final_root]``. When not
+            given, falls back to :data:`DEFAULT_DB_IMAGE_ROOTS`.
+
     Returns same signature as batch_local_matching_and_ransac():
       (best_map_key, pnp_pairs, results)
     """
     from scipy.spatial import cKDTree
-    import os
+
+    if data_roots is None:
+        data_roots = DEFAULT_DB_IMAGE_ROOTS
+    data_roots = tuple(data_roots)
 
     ref_img_names = list(candidates_data.keys())[:max_candidates]
     grouped = {}
 
-    # Build DB image paths for batch matching
+    # Build DB image paths for batch matching — skip candidates whose image
+    # cannot be located under any of the configured roots.
     db_paths = []
     db_names = []
     for name in ref_img_names:
         candidate = candidates_data[name]
         place, building, floor = candidate["map_key"]
-        db_img_path = f'/mnt/data/UNav-IO/temp/{place}/{building}/{floor}/perspectives/{name}'
+        db_img_path = _resolve_db_image_path(data_roots, place, building, floor, name)
+        if db_img_path is None:
+            continue
         db_paths.append(db_img_path)
         db_names.append(name)
 
@@ -271,6 +312,7 @@ def mast3r_relpose_localization(
     transform_matrices,
     min_inliers: int = 10,
     max_candidates: int = 5,
+    data_roots: Optional[Iterable[str]] = None,
 ):
     """
     Map-free localization with Procrustes coordinate system alignment.
@@ -281,12 +323,20 @@ def mast3r_relpose_localization(
     3. Transform query pose to world coordinates using this alignment
     4. No colmap 3D point cloud needed — only ref images with known poses
 
+    Args:
+        data_roots: Ordered list of root directories for DB image lookup
+            (see :func:`mast3r_matching_and_pnp`).
+
     Returns same signature as batch_local_matching_and_ransac():
       (best_map_key, pnp_pairs, results)
     """
-    import os, poselib
+    import poselib
     from scipy.spatial.transform import Rotation as R
     from collections import Counter
+
+    if data_roots is None:
+        data_roots = DEFAULT_DB_IMAGE_ROOTS
+    data_roots = tuple(data_roots)
 
     ref_img_names = list(candidates_data.keys())[:max_candidates]
 
@@ -298,12 +348,7 @@ def mast3r_relpose_localization(
         ref_frame = candidate["frame"]
 
         place, building, floor = map_key
-        db_img_path = None
-        for base in ['/mnt/data/UNav-IO/temp', '/mnt/data/UNav-IO/data', '/data']:
-            p = f'{base}/{place}/{building}/{floor}/perspectives/{name}'
-            if os.path.exists(p):
-                db_img_path = p
-                break
+        db_img_path = _resolve_db_image_path(data_roots, place, building, floor, name)
         if db_img_path is None:
             continue
 
