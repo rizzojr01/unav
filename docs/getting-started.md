@@ -34,13 +34,34 @@ Dependency files:
 - [`unav-run/poetry.lock`](https://github.com/endeleze/unav-run/blob/main/poetry.lock) locks nested dependency versions.
 - Legacy UNav core requirements live at [`ai4ce/unav/requirements.txt`](https://github.com/ai4ce/unav/blob/main/requirements.txt); use this only when installing the full UNav core repo directly.
 
+## Feature Models
+
+UNav uses a global descriptor for retrieval and a local feature extractor for matching.
+
+- **Global (retrieval):** `DinoV2Salad`. The checkpoint must exist at
+  `<DATA_FINAL_ROOT>/parameters/DinoV2Salad/ckpts/dino_salad.ckpt`.
+- **Local — mapping:** `superpoint+lightglue` (default used by the mapping pipeline).
+- **Local — localization server:** `mast3r`. Set `LOCAL_FEATURE_MODEL = "mast3r"` in the
+  server config. The weights (`naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric`,
+  ~2.75 GB) download automatically from HuggingFace on first run — the machine needs
+  internet access the first time the server starts. No manual download or checkpoint
+  placement is required.
+
 ## Build SLAM Docker Image
+
+The mapper launches SLAM via `docker run stella_vslam_dense`, so this image must exist
+locally. Build it from the **repo root** using the headless (socket) Dockerfile:
 
 ```bash
 git clone https://github.com/RoblabWh/stella_vslam_dense.git
-cd stella_vslam_dense/docker
-docker build -t stella_vslam_dense .
+cd stella_vslam_dense
+docker build -t stella_vslam_dense -f Dockerfile.socket . --build-arg NUM_THREADS=$(nproc)
 ```
+
+> The image **must** be tagged exactly `stella_vslam_dense` — the mapper calls it by that
+> name. If the image is missing, the SLAM step fails with a Docker
+> `pull access denied / repository does not exist` error (which can look like a
+> permissions problem but is really just a missing local image).
 
 ## End-to-End Inputs
 
