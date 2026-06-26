@@ -50,6 +50,7 @@ class UNavLocalizer:
         # Data containers for loaded map/models/features
         self.all_colmap_models = {}      # {place__building__floor: frames_by_name}
         self.all_global_features = {}    # {place__building__floor: (features, names)}
+        self.colmap_model_dirs = {}      # {key: model_dir} — for lazy COLMAP loading
         self.global_feat_paths = {}      # {place__building__floor: h5_path}
         self.local_feat_paths = {}       # {place__building__floor: h5_path}
         self.transform_matrices = {}     # {place__building__floor: np.ndarray or None}
@@ -93,13 +94,11 @@ class UNavLocalizer:
                     self.local_feat_paths[key] = os.path.join(feature_dir, "local_features.h5")
                     model_dir = os.path.join(self.config.data_final_root, place, building, floor, "colmap_map")
                     transform_path = os.path.join(self.config.data_final_root, place, building, floor, "transform_matrix.npy")
-                    # Load COLMAP model
-                    try:
-                        frames_by_name = load_colmap_model(model_dir, ext=".bin")
-                        self.all_colmap_models[key] = frames_by_name
-                        print(f"[✓] Loaded COLMAP model for {key}: {len(frames_by_name)} frames")
-                    except Exception as e:
-                        print(f"[WARNING] Could not load COLMAP model for {key}: {e}")
+                    # Defer COLMAP model load (lazy): only parse this floor's
+                    # images.bin/points3D.bin the first time a query retrieves it.
+                    # Global features below stay eager so VPR can still tell which
+                    # floor the user is on without the heavy COLMAP parse.
+                    self.colmap_model_dirs[key] = model_dir
                     # Load global features
                     h5_path = self.global_feat_paths[key]
                     if os.path.exists(h5_path):
@@ -159,6 +158,23 @@ class UNavLocalizer:
             device=str(self.device)
         )
 
+    def _ensure_colmap_model(self, key):
+        """Lazy-load and cache a floor's COLMAP model on first use."""
+        if key in self.all_colmap_models:
+            return self.all_colmap_models[key]
+        model_dir = self.colmap_model_dirs.get(key)
+        if model_dir is None:
+            return None
+        t0 = time.time()
+        try:
+            frames_by_name = load_colmap_model(model_dir, ext=".bin")
+            self.all_colmap_models[key] = frames_by_name
+            print(f"[lazy] Loaded COLMAP model for {key}: {len(frames_by_name)} frames in {time.time()-t0:.1f}s")
+        except Exception as e:
+            print(f"[WARNING] Could not lazy-load COLMAP model for {key}: {e}")
+            self.all_colmap_models[key] = {}
+        return self.all_colmap_models[key]
+
     def get_candidates_data(self, top_candidates):
         """
         Load all local features and COLMAP metadata for the VPR candidate set.
@@ -169,6 +185,8 @@ class UNavLocalizer:
         Returns:
             Dict mapping image name to data needed for local matching.
         """
+        for _cand in top_candidates:
+            self._ensure_colmap_model(_cand[0])
         return fetch_candidates_data(
             self.all_colmap_models,
             self.local_feat_paths,
