@@ -1,5 +1,6 @@
 import os
 import time
+import threading
 import torch
 import numpy as np
 
@@ -45,7 +46,6 @@ class UNavLocalizer:
         self.local_extractor = None
         self.global_extractor = None
         self.local_matcher = None
-        self._init_models()
 
         # Data containers for loaded map/models/features
         self.all_colmap_models = {}      # {place__building__floor: frames_by_name}
@@ -54,6 +54,13 @@ class UNavLocalizer:
         self.global_feat_paths = {}      # {place__building__floor: h5_path}
         self.local_feat_paths = {}       # {place__building__floor: h5_path}
         self.transform_matrices = {}     # {place__building__floor: np.ndarray or None}
+
+        # Kick off global-feature loading (CPU/IO) in a background thread so it
+        # overlaps with GPU model init below; the two phases are independent.
+        self._register_map_paths()
+        self._gf_thread = threading.Thread(target=self._load_all_global_features, daemon=True)
+        self._gf_thread.start()
+        self._init_models()
 
     def _init_models(self):
         """
@@ -80,11 +87,8 @@ class UNavLocalizer:
         )
         self.global_extractor.set_train(False)
 
-    def load_maps_and_features(self):
-        """
-        Load all COLMAP models, features, and transformation matrices for all regions.
-        Should be called after __init__, or whenever maps are updated.
-        """
+    def _register_map_paths(self):
+        """Register feature/model paths and load (tiny) transform matrices. Cheap."""
         for place, bld_dict in self.config.places.items():
             for building, floors in bld_dict.items():
                 for floor in floors:
@@ -92,33 +96,41 @@ class UNavLocalizer:
                     feature_dir = os.path.join(self.config.data_final_root, place, building, floor, "features")
                     self.global_feat_paths[key] = os.path.join(feature_dir, f"global_features_{self.config.global_descriptor_model}.h5")
                     self.local_feat_paths[key] = os.path.join(feature_dir, "local_features.h5")
-                    model_dir = os.path.join(self.config.data_final_root, place, building, floor, "colmap_map")
+                    self.colmap_model_dirs[key] = os.path.join(self.config.data_final_root, place, building, floor, "colmap_map")
                     transform_path = os.path.join(self.config.data_final_root, place, building, floor, "transform_matrix.npy")
-                    # Defer COLMAP model load (lazy): only parse this floor's
-                    # images.bin/points3D.bin the first time a query retrieves it.
-                    # Global features below stay eager so VPR can still tell which
-                    # floor the user is on without the heavy COLMAP parse.
-                    self.colmap_model_dirs[key] = model_dir
-                    # Load global features
-                    h5_path = self.global_feat_paths[key]
-                    if os.path.exists(h5_path):
-                        try:
-                            feats, names = load_global_features(h5_path)
-                            self.all_global_features[key] = (feats, names)
-                            print(f"[✓] Loaded global features for {key}: {len(names)} images")
-                        except Exception as e:
-                            print(f"[WARNING] Could not load global features for {key}: {e}")
-                    # Load transformation matrix if present
                     if os.path.exists(transform_path):
                         try:
-                            matrix = np.load(transform_path)
-                            self.transform_matrices[key] = matrix
-                            print(f"[✓] Loaded transform matrix for {key}: shape={matrix.shape}")
+                            self.transform_matrices[key] = np.load(transform_path)
                         except Exception as e:
                             print(f"[WARNING] Could not load transform matrix for {key}: {e}")
                             self.transform_matrices[key] = None
                     else:
                         self.transform_matrices[key] = None
+
+    def _load_all_global_features(self):
+        """Eagerly load global features for every floor (needed for VPR)."""
+        for key, h5_path in list(self.global_feat_paths.items()):
+            if os.path.exists(h5_path):
+                try:
+                    feats, names = load_global_features(h5_path)
+                    self.all_global_features[key] = (feats, names)
+                    print(f"[✓] Loaded global features for {key}: {len(names)} images")
+                except Exception as e:
+                    print(f"[WARNING] Could not load global features for {key}: {e}")
+
+    def load_maps_and_features(self):
+        """
+        Ensure global features + transforms are loaded (COLMAP models stay lazy).
+        If __init__ started a background load, just wait for it; otherwise
+        (e.g. called again after maps change) do a fresh register + load.
+        """
+        t = getattr(self, "_gf_thread", None)
+        if t is not None:
+            t.join()
+            self._gf_thread = None
+        else:
+            self._register_map_paths()
+            self._load_all_global_features()
         print("[INFO] All map and feature loading complete.")
 
     def extract_query_features(self, query_img: np.ndarray):
